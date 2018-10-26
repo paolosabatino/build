@@ -1,5 +1,5 @@
 --- a/arch/arm64/boot/dts/amlogic/meson-gxbb-mxq-s905-v20.dts	1970-01-01 00:00:00.000000000 +0000
-+++ b/arch/arm64/boot/dts/amlogic/meson-gxbb-mxq-s905-v20.dts	2018-10-21 19:11:31.894533006 +0000
++++ b/arch/arm64/boot/dts/amlogic/meson-gxbb-mxq-s905-v20.dts	2018-10-21 21:06:59.244784821 +0000
 @@ -0,0 +1,327 @@
 +// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 +/*
@@ -36,8 +36,8 @@
 +		compatible = "gpio-leds";
 +		blue {
 +			label = "system-status";
-+			gpios = <&gpio_ao GPIOAO_13 GPIO_ACTIVE_LOW>;
-+			linux,default-trigger = "mmc0";
++			gpios = <&gpio_ao GPIOAO_13 GPIO_ACTIVE_HIGH>;
++			linux,default-trigger = "mmc1";
 +			default-state = "off";
 +		};
 +	};
