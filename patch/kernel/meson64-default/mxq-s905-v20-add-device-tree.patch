@@ -1,6 +1,6 @@
 --- a/arch/arm64/boot/dts/amlogic/meson-gxbb-mxq-s905-v20.dts	1970-01-01 00:00:00.000000000 +0000
-+++ b/arch/arm64/boot/dts/amlogic/meson-gxbb-mxq-s905-v20.dts	2018-10-21 21:06:59.244784821 +0000
-@@ -0,0 +1,327 @@
++++ b/arch/arm64/boot/dts/amlogic/meson-gxbb-mxq-s905-v20.dts	2018-11-04 09:30:17.446175526 +0000
+@@ -0,0 +1,333 @@
 +// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 +/*
 + * Copyright (c) 2016 Andreas Färber
@@ -278,6 +278,12 @@
 +	cap-sd-highspeed;
 +	max-frequency = <100000000>;
 +	disable-wp;
++
++	sd-uhs-sdr12;
++	sd-uhs-sdr25;
++	sd-uhs-sdr50;
++	sd-uhs-sdr104;
++	sd-uhs-ddr50;
 +
 +	cd-gpios = <&gpio CARD_6 GPIO_ACTIVE_HIGH>;
 +	cd-inverted;
