@@ -1,30 +1,3 @@
-diff --git a/arch/arm/mach-meson/Kconfig b/arch/arm/mach-meson/Kconfig
-index 0350787..74c8a71 100644
---- a/arch/arm/mach-meson/Kconfig
-+++ b/arch/arm/mach-meson/Kconfig
-@@ -27,6 +27,13 @@ config TARGET_ODROID_C2
- 	  with 2 GiB of RAM, Gigabit Ethernet, HDMI, 4 USB, micro-SD
- 	  slot, eMMC, IR receiver and a 40-pin GPIO header.
- 
-+config TARGET_MXQ_S905_V20
-+	bool "MXQ-S905-V20"
-+	help
-+	  MXQ S905 V20 is a TV Box based on GXBaby with 1 GiB of RAM,
-+	  4 USB ports, Fast Ethernet, RTL8189ETV Wifi, HDMI, SD Card,
-+	  8 GiB eMMC and IR receiver
-+
- endif
- 
- if MESON_GXL
-@@ -62,6 +69,8 @@ config SYS_MALLOC_F_LEN
- 
- source "board/amlogic/odroid-c2/Kconfig"
- 
-+source "board/amlogic/mxq-s905-v20/Kconfig"
-+
- source "board/amlogic/p212/Kconfig"
- 
- source "board/amlogic/libretech-cc/Kconfig"
 diff --git a/board/amlogic/mxq-s905-v20/Kconfig b/board/amlogic/mxq-s905-v20/Kconfig
 index e69de29..1eb900f 100644
 --- /dev/null
@@ -54,75 +27,6 @@ index e69de29..ee63bac 100644
 +#
 +
 +obj-y	:= mxq-s905-v20.o
-diff --git a/board/amlogic/mxq-s905-v20/mxq-s905-v20.c b/board/amlogic/mxq-s905-v20/mxq-s905-v20.c
-index e69de29..cb8391e 100644
---- /dev/null
-+++ b/board/amlogic/mxq-s905-v20/mxq-s905-v20.c
-@@ -0,0 +1,64 @@
-+/*
-+ * (C) Copyright 2018 Thomas McKahan
-+ *
-+ * SPDX-License-Identifier:	GPL-2.0+
-+ */
-+
-+#include <common.h>
-+#include <dm.h>
-+#include <asm/io.h>
-+#include <asm/arch/gxbb.h>
-+#include <asm/arch/sm.h>
-+#include <asm/arch/eth.h>
-+#include <asm/arch/mem.h>
-+
-+#define EFUSE_SN_OFFSET		20
-+#define EFUSE_SN_SIZE		16
-+#define EFUSE_MAC_OFFSET	52
-+#define EFUSE_MAC_SIZE		6
-+
-+int board_init(void)
-+{
-+	return 0;
-+}
-+
-+int misc_init_r(void)
-+{
-+	u8 mac_addr[EFUSE_MAC_SIZE];
-+	char serial[EFUSE_SN_SIZE];
-+	ssize_t len;
-+
-+	meson_gx_eth_init(PHY_INTERFACE_MODE_RGMII, 0);
-+
-+	/* Enable power and clock gate */
-+	setbits_le32(GXBB_GCLK_MPEG_0, GXBB_GCLK_MPEG_0_I2C);
-+
-+	/* Reset PHY on GPIOZ_14 */
-+	clrbits_le32(GXBB_GPIO_EN(3), BIT(14));
-+	clrbits_le32(GXBB_GPIO_OUT(3), BIT(14));
-+	mdelay(10);
-+	setbits_le32(GXBB_GPIO_OUT(3), BIT(14));
-+
-+	if (!eth_env_get_enetaddr("ethaddr", mac_addr)) {
-+		len = meson_sm_read_efuse(EFUSE_MAC_OFFSET,
-+					  mac_addr, EFUSE_MAC_SIZE);
-+		if (len == EFUSE_MAC_SIZE && is_valid_ethaddr(mac_addr))
-+			eth_env_set_enetaddr("ethaddr", mac_addr);
-+	}
-+
-+	if (!env_get("serial#")) {
-+		len = meson_sm_read_efuse(EFUSE_SN_OFFSET, serial,
-+			EFUSE_SN_SIZE);
-+		if (len == EFUSE_SN_SIZE) 
-+			env_set("serial#", serial);
-+	}
-+
-+	return 0;
-+}
-+
-+int ft_board_setup(void *blob, bd_t *bd)
-+{
-+	meson_gx_init_reserved_memory(blob);
-+
-+	return 0;
-+}
 diff --git a/configs/mxq-s905-v20_defconfig b/configs/mxq-s905-v20_defconfig
 index e69de29..c74662e 100644
 --- /dev/null
@@ -164,10 +68,106 @@ index e69de29..c74662e 100644
 +CONFIG_DEBUG_UART_SKIP_INIT=y
 +CONFIG_MESON_SERIAL=y
 +CONFIG_OF_LIBFDT_OVERLAY=y
-diff --git a/include/configs/mxq-s905-v20.h b/include/configs/mxq-s905-v20.h
-index e69de29..178c617 100644
---- /dev/null
-+++ b/include/configs/mxq-s905-v20.h
+diff --git a/arch/arm/dts/Makefile b/arch/arm/dts/Makefile
+index d36447d..5486ab6 100644
+--- a/arch/arm/dts/Makefile
++++ b/arch/arm/dts/Makefile
+@@ -56,6 +56,7 @@ dtb-$(CONFIG_ARCH_MESON) += \
+ 	meson-gxbb-nanopi-k2.dtb \
+ 	meson-gxbb-odroidc2.dtb \
+ 	meson-gxbb-nanopi-k2.dtb \
++	meson-gxbb-mxq-s905-v20.dtb \
+ 	meson-gxl-s905x-p212.dtb \
+ 	meson-gxl-s905x-libretech-cc.dtb \
+ 	meson-gxl-s905x-khadas-vim.dtb \
+diff --git a/arch/arm/mach-meson/Kconfig b/arch/arm/mach-meson/Kconfig
+index cc94344..54c301f 100644
+--- a/arch/arm/mach-meson/Kconfig
++++ b/arch/arm/mach-meson/Kconfig
+@@ -47,6 +47,14 @@ config TARGET_NANOPI_K2
+ 	  NANOPI_K2 is a single board computer based on Meson GXBaby
+ 	  with 2 GiB of RAM, Gigabit Ethernet,AP6212 Wifi, HDMI, 4 USB,
+ 	  micro-SD slot, eMMC, IR receiver and a 40-pin GPIO header.
++
++config TARGET_MXQ_S905_V20
++        bool "MXQ-S905-V20"
++        help
++          MXQ S905 V20 is a TV Box based on GXBaby with 1 GiB of RAM,
++          4 USB ports, Fast Ethernet, RTL8189ETV Wifi, HDMI, SD Card,
++          8 GiB eMMC and IR receiver
++
+ endif
+ 
+ if MESON_GXL
+@@ -95,6 +103,8 @@ source "board/amlogic/odroid-c2/Kconfig"
+ 
+ source "board/amlogic/nanopi-k2/Kconfig"
+ 
++source "board/amlogic/mxq-s905-v20/Kconfig"
++
+ source "board/amlogic/p212/Kconfig"
+ 
+ source "board/amlogic/libretech-cc/Kconfig"
+--- /dev/null	2018-12-15 10:20:54.484000000 +0000
++++ b/board/amlogic/mxq-s905-v20/mxq-s905-v20.c	2018-12-15 12:02:32.167320460 +0000
+@@ -0,0 +1,55 @@
++// SPDX-License-Identifier: GPL-2.0+
++/*
++ * (C) Copyright 2018 Thomas McKahan
++ */
++
++#include <common.h>
++#include <dm.h>
++#include <environment.h>
++#include <asm/io.h>
++#include <asm/arch/gx.h>
++#include <asm/arch/sm.h>
++#include <asm/arch/eth.h>
++#include <asm/arch/mem.h>
++
++#define EFUSE_SN_OFFSET		20
++#define EFUSE_SN_SIZE		16
++#define EFUSE_MAC_OFFSET	52
++#define EFUSE_MAC_SIZE		6
++
++int board_init(void)
++{
++	return 0;
++}
++
++int misc_init_r(void)
++{
++	u8 mac_addr[EFUSE_MAC_SIZE];
++	char serial[EFUSE_SN_SIZE];
++	ssize_t len;
++
++	meson_gx_eth_init(PHY_INTERFACE_MODE_RGMII, 0);
++
++	if (!eth_env_get_enetaddr("ethaddr", mac_addr)) {
++		len = meson_sm_read_efuse(EFUSE_MAC_OFFSET,
++					  mac_addr, EFUSE_MAC_SIZE);
++		if (len == EFUSE_MAC_SIZE && is_valid_ethaddr(mac_addr))
++			eth_env_set_enetaddr("ethaddr", mac_addr);
++	}
++
++	if (!env_get("serial#")) {
++		len = meson_sm_read_efuse(EFUSE_SN_OFFSET, serial,
++			EFUSE_SN_SIZE);
++		if (len == EFUSE_SN_SIZE)
++			env_set("serial#", serial);
++	}
++
++	return 0;
++}
++
++int ft_board_setup(void *blob, bd_t *bd)
++{
++	meson_gx_init_reserved_memory(blob);
++
++	return 0;
++}
+--- /dev/null	2018-12-15 10:20:54.484000000 +0000
++++ b/include/configs/mxq-s905-v20.h	2018-12-15 11:47:59.195703546 +0000
 @@ -0,0 +1,20 @@
 +/*
 + * Configuration for MXQ-S905-V20 
@@ -186,18 +186,6 @@ index e69de29..178c617 100644
 +
 +#define MESON_FDTFILE_SETTING "fdtfile=amlogic/meson-gxbb-mxq-s905-v20.dtb\0"
 +
-+#include <configs/meson-gxbb-common.h>
++#include <configs/meson-gx-common.h>
 +
 +#endif /* __CONFIG_H */
-diff --git a/arch/arm/dts/Makefile b/arch/arm/dts/Makefile
-index d36447d..5486ab6 100644
---- a/arch/arm/dts/Makefile
-+++ b/arch/arm/dts/Makefile
-@@ -56,6 +56,7 @@ dtb-$(CONFIG_ARCH_MESON) += \
- 	meson-gxbb-nanopi-k2.dtb \
- 	meson-gxbb-odroidc2.dtb \
- 	meson-gxbb-nanopi-k2.dtb \
-+	meson-gxbb-mxq-s905-v20-dtb \
- 	meson-gxl-s905x-p212.dtb \
- 	meson-gxl-s905x-libretech-cc.dtb \
- 	meson-gxl-s905x-khadas-vim.dtb \
