@@ -249,6 +249,7 @@ if [[ $IGNORE_UPDATES != yes ]]; then
 	fetch_from_repo "https://github.com/MarvellEmbeddedProcessors/mv-ddr-marvell.git" "marvell-ddr" "branch:mv_ddr-armada-18.12"
 	fetch_from_repo "https://github.com/armbian/odroidc2-blobs" "odroidc2-blobs" "branch:master"
 	fetch_from_repo "https://git.zx2c4.com/WireGuard" "wireguard" "branch:master"
+	fetch_from_repo "https://github.com/aircrack-ng/rtl8812au" "rtl8812au" "branch:v5.2.20"
 	fetch_from_repo "https://github.com/armbian/testings" "testing-reports" "branch:master"
 fi
 
@@ -326,3 +327,5 @@ fi
 end=`date +%s`
 runtime=$(((end-start)/60))
 display_alert "Runtime" "$runtime min" "info"
+# Make it easy to repeat build by displaying build options used
+display_alert "Repeat Build Options" "BOARD=${BOARD} BRANCH=${BRANCH} RELEASE=${RELEASE} BUILD_DESKTOP=${BUILD_DESKTOP} KERNEL_ONLY=${KERNEL_ONLY} KERNEL_CONFIGURE=no" "info"
