@@ -6,7 +6,7 @@ BOOTCONFIG="mxq-s905-v20_defconfig"
 MODULES=""
 MODULES_NEXT=""
 #
-KERNEL_TARGET="default,next"
+KERNEL_TARGET="default,next,dev"
 CLI_TARGET="stretch:default,next"
 DESKTOP_TARGET="stretch:default,next"
 CLI_BETA_TARGET=""
