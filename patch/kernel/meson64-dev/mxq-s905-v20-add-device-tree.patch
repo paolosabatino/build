@@ -1,5 +1,5 @@
 --- /dev/null	2019-05-04 16:18:31.432000000 +0000
-+++ arch/arm64/boot/dts/amlogic/meson-gxbb-mxq-s905-v20.dts	2019-05-04 16:43:10.476360198 +0000
++++ b/arch/arm64/boot/dts/amlogic/meson-gxbb-mxq-s905-v20.dts	2019-05-04 16:43:10.476360198 +0000
 @@ -0,0 +1,326 @@
 +// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 +/*

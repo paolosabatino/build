@@ -27,47 +27,6 @@ index e69de29..ee63bac 100644
 +#
 +
 +obj-y	:= mxq-s905-v20.o
-diff --git a/configs/mxq-s905-v20_defconfig b/configs/mxq-s905-v20_defconfig
-index e69de29..c74662e 100644
---- /dev/null
-+++ b/configs/mxq-s905-v20_defconfig
-@@ -0,0 +1,36 @@
-+CONFIG_ARM=y
-+CONFIG_ARCH_MESON=y
-+CONFIG_SYS_TEXT_BASE=0x01000000
-+CONFIG_MESON_GXBB=y
-+CONFIG_TARGET_MXQ_S905_V20=y
-+CONFIG_IDENT_STRING=" mxq-s905-v20"
-+CONFIG_DEFAULT_DEVICE_TREE="meson-gxbb-mxq-s905-v20"
-+CONFIG_DEBUG_UART=y
-+CONFIG_OF_BOARD_SETUP=y
-+# CONFIG_DISPLAY_CPUINFO is not set
-+# CONFIG_DISPLAY_BOARDINFO is not set
-+# CONFIG_CMD_BDI is not set
-+# CONFIG_CMD_IMI is not set
-+CONFIG_CMD_GPIO=y
-+CONFIG_CMD_I2C=y
-+# CONFIG_CMD_LOADS is not set
-+CONFIG_CMD_MMC=y
-+# CONFIG_CMD_SETEXPR is not set
-+CONFIG_OF_CONTROL=y
-+CONFIG_NET_RANDOM_ETHADDR=y
-+CONFIG_DM_GPIO=y
-+CONFIG_DM_I2C=y
-+CONFIG_SYS_I2C_MESON=y
-+CONFIG_DM_MMC=y
-+CONFIG_MMC_MESON_GX=y
-+CONFIG_DM_ETH=y
-+CONFIG_ETH_DESIGNWARE=y
-+CONFIG_PINCTRL=y
-+CONFIG_PINCTRL_MESON_GXBB=y
-+CONFIG_DEBUG_UART_MESON=y
-+CONFIG_DEBUG_UART_BASE=0xc81004c0
-+CONFIG_DEBUG_UART_CLOCK=24000000
-+CONFIG_DEBUG_UART_ANNOUNCE=y
-+CONFIG_DEBUG_UART_SKIP_INIT=y
-+CONFIG_MESON_SERIAL=y
-+CONFIG_OF_LIBFDT_OVERLAY=y
 diff --git a/arch/arm/dts/Makefile b/arch/arm/dts/Makefile
 index d36447d..5486ab6 100644
 --- a/arch/arm/dts/Makefile
@@ -80,37 +39,71 @@ index d36447d..5486ab6 100644
  	meson-gxl-s905x-p212.dtb \
  	meson-gxl-s905x-libretech-cc.dtb \
  	meson-gxl-s905x-khadas-vim.dtb \
-diff --git a/arch/arm/mach-meson/Kconfig b/arch/arm/mach-meson/Kconfig
-index cc94344..54c301f 100644
---- a/arch/arm/mach-meson/Kconfig
-+++ b/arch/arm/mach-meson/Kconfig
-@@ -47,6 +47,14 @@ config TARGET_NANOPI_K2
- 	  NANOPI_K2 is a single board computer based on Meson GXBaby
- 	  with 2 GiB of RAM, Gigabit Ethernet,AP6212 Wifi, HDMI, 4 USB,
- 	  micro-SD slot, eMMC, IR receiver and a 40-pin GPIO header.
-+
-+config TARGET_MXQ_S905_V20
-+        bool "MXQ-S905-V20"
-+        help
-+          MXQ S905 V20 is a TV Box based on GXBaby with 1 GiB of RAM,
-+          4 USB ports, Fast Ethernet, RTL8189ETV Wifi, HDMI, SD Card,
-+          8 GiB eMMC and IR receiver
-+
- endif
- 
- if MESON_GXL
-@@ -95,6 +103,8 @@ source "board/amlogic/odroid-c2/Kconfig"
- 
- source "board/amlogic/nanopi-k2/Kconfig"
- 
-+source "board/amlogic/mxq-s905-v20/Kconfig"
-+
- source "board/amlogic/p212/Kconfig"
- 
- source "board/amlogic/libretech-cc/Kconfig"
 --- /dev/null	2018-12-15 10:20:54.484000000 +0000
-+++ b/board/amlogic/mxq-s905-v20/mxq-s905-v20.c	2018-12-15 12:02:32.167320460 +0000
-@@ -0,0 +1,55 @@
++++ b/include/configs/mxq-s905-v20.h	2018-12-15 11:47:59.195703546 +0000
+@@ -0,0 +1,20 @@
++/*
++ * Configuration for MXQ-S905-V20 
++ * (C) Copyright 2018 Paolo Sabatino
++ *
++ * SPDX-License-Identifier:	GPL-2.0+
++ */
++
++#ifndef __CONFIG_H
++#define __CONFIG_H
++
++#define CONFIG_MISC_INIT_R
++
++/* Serial setup */
++#define CONFIG_CONS_INDEX		0
++
++#define MESON_FDTFILE_SETTING "fdtfile=amlogic/meson-gxbb-mxq-s905-v20.dtb\0"
++
++#include <configs/meson-gx-common.h>
++
++#endif /* __CONFIG_H */
+--- /dev/null	2019-05-05 00:08:46.100000000 +0000
++++ b/configs/mxq-s905-v20_defconfig
+@@ -0,0 +1,36 @@
++CONFIG_ARM=y
++CONFIG_SYS_BOARD="mxq-s905-v20"
++CONFIG_ARCH_MESON=y
++CONFIG_SYS_TEXT_BASE=0x01000000
++CONFIG_DEBUG_UART_BASE=0xc81004c0
++CONFIG_DEBUG_UART_CLOCK=24000000
++CONFIG_IDENT_STRING=" mxq-s905-v20"
++CONFIG_SMBIOS_PRODUCT_NAME="odroid-c2"
++CONFIG_DEBUG_UART=y
++CONFIG_OF_BOARD_SETUP=y
++# CONFIG_DISPLAY_CPUINFO is not set
++# CONFIG_DISPLAY_BOARDINFO is not set
++# CONFIG_CMD_BDI is not set
++# CONFIG_CMD_IMI is not set
++CONFIG_CMD_GPIO=y
++CONFIG_CMD_I2C=y
++# CONFIG_CMD_LOADS is not set
++CONFIG_CMD_MMC=y
++# CONFIG_CMD_SETEXPR is not set
++CONFIG_OF_CONTROL=y
++CONFIG_DEFAULT_DEVICE_TREE="meson-gxbb-mxq-s905-v20"
++CONFIG_NET_RANDOM_ETHADDR=y
++CONFIG_DM_GPIO=y
++CONFIG_DM_I2C=y
++CONFIG_SYS_I2C_MESON=y
++CONFIG_DM_MMC=y
++CONFIG_MMC_MESON_GX=y
++CONFIG_DM_ETH=y
++CONFIG_ETH_DESIGNWARE=y
++CONFIG_PINCTRL=y
++CONFIG_PINCTRL_MESON_GXBB=y
++CONFIG_DEBUG_UART_MESON=y
++CONFIG_DEBUG_UART_ANNOUNCE=y
++CONFIG_DEBUG_UART_SKIP_INIT=y
++CONFIG_MESON_SERIAL=y
++CONFIG_OF_LIBFDT_OVERLAY=y
+--- /dev/null	2019-05-05 00:08:46.100000000 +0000
++++ b/board/amlogic/mxq-s905-v20/mxq-s905-v20.c	2019-05-05 00:51:30.181414235 +0000
+@@ -0,0 +1,57 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * (C) Copyright 2018 Thomas McKahan
@@ -141,7 +134,7 @@ index cc94344..54c301f 100644
 +	char serial[EFUSE_SN_SIZE];
 +	ssize_t len;
 +
-+	meson_gx_eth_init(PHY_INTERFACE_MODE_RGMII, 0);
++	meson_eth_init(PHY_INTERFACE_MODE_RGMII, 0);
 +
 +	if (!eth_env_get_enetaddr("ethaddr", mac_addr)) {
 +		len = meson_sm_read_efuse(EFUSE_MAC_OFFSET,
@@ -160,32 +153,11 @@ index cc94344..54c301f 100644
 +	return 0;
 +}
 +
++/*
 +int ft_board_setup(void *blob, bd_t *bd)
 +{
 +	meson_gx_init_reserved_memory(blob);
 +
 +	return 0;
 +}
---- /dev/null	2018-12-15 10:20:54.484000000 +0000
-+++ b/include/configs/mxq-s905-v20.h	2018-12-15 11:47:59.195703546 +0000
-@@ -0,0 +1,20 @@
-+/*
-+ * Configuration for MXQ-S905-V20 
-+ * (C) Copyright 2018 Paolo Sabatino
-+ *
-+ * SPDX-License-Identifier:	GPL-2.0+
-+ */
-+
-+#ifndef __CONFIG_H
-+#define __CONFIG_H
-+
-+#define CONFIG_MISC_INIT_R
-+
-+/* Serial setup */
-+#define CONFIG_CONS_INDEX		0
-+
-+#define MESON_FDTFILE_SETTING "fdtfile=amlogic/meson-gxbb-mxq-s905-v20.dtb\0"
-+
-+#include <configs/meson-gx-common.h>
-+
-+#endif /* __CONFIG_H */
++*/
