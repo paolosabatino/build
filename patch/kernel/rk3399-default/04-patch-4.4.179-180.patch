@@ -943,6 +943,2280 @@ index 87c697181d25..4faff3e77b25 100644
  	.set	pop
  
  1:	jal	syscall_trace_enter
+diff --git a/arch/powerpc/Kconfig b/arch/powerpc/Kconfig
+index 58a1fa979655..01b6c00a7060 100644
+--- a/arch/powerpc/Kconfig
++++ b/arch/powerpc/Kconfig
+@@ -136,7 +136,7 @@ config PPC
+ 	select GENERIC_SMP_IDLE_THREAD
+ 	select GENERIC_CMOS_UPDATE
+ 	select GENERIC_TIME_VSYSCALL_OLD
+-	select GENERIC_CPU_VULNERABILITIES	if PPC_BOOK3S_64
++	select GENERIC_CPU_VULNERABILITIES	if PPC_BARRIER_NOSPEC
+ 	select GENERIC_CLOCKEVENTS
+ 	select GENERIC_CLOCKEVENTS_BROADCAST if SMP
+ 	select ARCH_HAS_TICK_BROADCAST if GENERIC_CLOCKEVENTS_BROADCAST
+@@ -162,6 +162,11 @@ config PPC
+ 	select ARCH_HAS_DMA_SET_COHERENT_MASK
+ 	select HAVE_ARCH_SECCOMP_FILTER
+ 
++config PPC_BARRIER_NOSPEC
++    bool
++    default y
++    depends on PPC_BOOK3S_64 || PPC_FSL_BOOK3E
++
+ config GENERIC_CSUM
+ 	def_bool CPU_LITTLE_ENDIAN
+ 
+diff --git a/arch/powerpc/include/asm/asm-prototypes.h b/arch/powerpc/include/asm/asm-prototypes.h
+new file mode 100644
+index 000000000000..8944c55591cf
+--- /dev/null
++++ b/arch/powerpc/include/asm/asm-prototypes.h
+@@ -0,0 +1,21 @@
++#ifndef _ASM_POWERPC_ASM_PROTOTYPES_H
++#define _ASM_POWERPC_ASM_PROTOTYPES_H
++/*
++ * This file is for prototypes of C functions that are only called
++ * from asm, and any associated variables.
++ *
++ * Copyright 2016, Daniel Axtens, IBM Corporation.
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; either version 2
++ * of the License, or (at your option) any later version.
++ */
++
++/* Patch sites */
++extern s32 patch__call_flush_count_cache;
++extern s32 patch__flush_count_cache_return;
++
++extern long flush_count_cache;
++
++#endif /* _ASM_POWERPC_ASM_PROTOTYPES_H */
+diff --git a/arch/powerpc/include/asm/barrier.h b/arch/powerpc/include/asm/barrier.h
+index b9e16855a037..e7cb72cdb2ba 100644
+--- a/arch/powerpc/include/asm/barrier.h
++++ b/arch/powerpc/include/asm/barrier.h
+@@ -92,4 +92,25 @@ do {									\
+ #define smp_mb__after_atomic()      smp_mb()
+ #define smp_mb__before_spinlock()   smp_mb()
+ 
++#ifdef CONFIG_PPC_BOOK3S_64
++#define NOSPEC_BARRIER_SLOT   nop
++#elif defined(CONFIG_PPC_FSL_BOOK3E)
++#define NOSPEC_BARRIER_SLOT   nop; nop
++#endif
++
++#ifdef CONFIG_PPC_BARRIER_NOSPEC
++/*
++ * Prevent execution of subsequent instructions until preceding branches have
++ * been fully resolved and are no longer executing speculatively.
++ */
++#define barrier_nospec_asm NOSPEC_BARRIER_FIXUP_SECTION; NOSPEC_BARRIER_SLOT
++
++// This also acts as a compiler barrier due to the memory clobber.
++#define barrier_nospec() asm (stringify_in_c(barrier_nospec_asm) ::: "memory")
++
++#else /* !CONFIG_PPC_BARRIER_NOSPEC */
++#define barrier_nospec_asm
++#define barrier_nospec()
++#endif /* CONFIG_PPC_BARRIER_NOSPEC */
++
+ #endif /* _ASM_POWERPC_BARRIER_H */
+diff --git a/arch/powerpc/include/asm/code-patching-asm.h b/arch/powerpc/include/asm/code-patching-asm.h
+new file mode 100644
+index 000000000000..ed7b1448493a
+--- /dev/null
++++ b/arch/powerpc/include/asm/code-patching-asm.h
+@@ -0,0 +1,18 @@
++/* SPDX-License-Identifier: GPL-2.0+ */
++/*
++ * Copyright 2018, Michael Ellerman, IBM Corporation.
++ */
++#ifndef _ASM_POWERPC_CODE_PATCHING_ASM_H
++#define _ASM_POWERPC_CODE_PATCHING_ASM_H
++
++/* Define a "site" that can be patched */
++.macro patch_site label name
++	.pushsection ".rodata"
++	.balign 4
++	.global \name
++\name:
++	.4byte	\label - .
++	.popsection
++.endm
++
++#endif /* _ASM_POWERPC_CODE_PATCHING_ASM_H */
+diff --git a/arch/powerpc/include/asm/code-patching.h b/arch/powerpc/include/asm/code-patching.h
+index 840a5509b3f1..a734b4b34d26 100644
+--- a/arch/powerpc/include/asm/code-patching.h
++++ b/arch/powerpc/include/asm/code-patching.h
+@@ -28,6 +28,8 @@ unsigned int create_cond_branch(const unsigned int *addr,
+ 				unsigned long target, int flags);
+ int patch_branch(unsigned int *addr, unsigned long target, int flags);
+ int patch_instruction(unsigned int *addr, unsigned int instr);
++int patch_instruction_site(s32 *addr, unsigned int instr);
++int patch_branch_site(s32 *site, unsigned long target, int flags);
+ 
+ int instr_is_relative_branch(unsigned int instr);
+ int instr_is_branch_to_addr(const unsigned int *instr, unsigned long addr);
+diff --git a/arch/powerpc/include/asm/exception-64s.h b/arch/powerpc/include/asm/exception-64s.h
+index 9bddbec441b8..3ed536bec462 100644
+--- a/arch/powerpc/include/asm/exception-64s.h
++++ b/arch/powerpc/include/asm/exception-64s.h
+@@ -50,6 +50,27 @@
+ #define EX_PPR		88	/* SMT thread status register (priority) */
+ #define EX_CTR		96
+ 
++#define STF_ENTRY_BARRIER_SLOT						\
++	STF_ENTRY_BARRIER_FIXUP_SECTION;				\
++	nop;								\
++	nop;								\
++	nop
++
++#define STF_EXIT_BARRIER_SLOT						\
++	STF_EXIT_BARRIER_FIXUP_SECTION;					\
++	nop;								\
++	nop;								\
++	nop;								\
++	nop;								\
++	nop;								\
++	nop
++
++/*
++ * r10 must be free to use, r13 must be paca
++ */
++#define INTERRUPT_TO_KERNEL						\
++	STF_ENTRY_BARRIER_SLOT
++
+ /*
+  * Macros for annotating the expected destination of (h)rfid
+  *
+@@ -66,16 +87,19 @@
+ 	rfid
+ 
+ #define RFI_TO_USER							\
++	STF_EXIT_BARRIER_SLOT;						\
+ 	RFI_FLUSH_SLOT;							\
+ 	rfid;								\
+ 	b	rfi_flush_fallback
+ 
+ #define RFI_TO_USER_OR_KERNEL						\
++	STF_EXIT_BARRIER_SLOT;						\
+ 	RFI_FLUSH_SLOT;							\
+ 	rfid;								\
+ 	b	rfi_flush_fallback
+ 
+ #define RFI_TO_GUEST							\
++	STF_EXIT_BARRIER_SLOT;						\
+ 	RFI_FLUSH_SLOT;							\
+ 	rfid;								\
+ 	b	rfi_flush_fallback
+@@ -84,21 +108,25 @@
+ 	hrfid
+ 
+ #define HRFI_TO_USER							\
++	STF_EXIT_BARRIER_SLOT;						\
+ 	RFI_FLUSH_SLOT;							\
+ 	hrfid;								\
+ 	b	hrfi_flush_fallback
+ 
+ #define HRFI_TO_USER_OR_KERNEL						\
++	STF_EXIT_BARRIER_SLOT;						\
+ 	RFI_FLUSH_SLOT;							\
+ 	hrfid;								\
+ 	b	hrfi_flush_fallback
+ 
+ #define HRFI_TO_GUEST							\
++	STF_EXIT_BARRIER_SLOT;						\
+ 	RFI_FLUSH_SLOT;							\
+ 	hrfid;								\
+ 	b	hrfi_flush_fallback
+ 
+ #define HRFI_TO_UNKNOWN							\
++	STF_EXIT_BARRIER_SLOT;						\
+ 	RFI_FLUSH_SLOT;							\
+ 	hrfid;								\
+ 	b	hrfi_flush_fallback
+@@ -226,6 +254,7 @@ END_FTR_SECTION_NESTED(ftr,ftr,943)
+ #define __EXCEPTION_PROLOG_1(area, extra, vec)				\
+ 	OPT_SAVE_REG_TO_PACA(area+EX_PPR, r9, CPU_FTR_HAS_PPR);		\
+ 	OPT_SAVE_REG_TO_PACA(area+EX_CFAR, r10, CPU_FTR_CFAR);		\
++	INTERRUPT_TO_KERNEL;						\
+ 	SAVE_CTR(r10, area);						\
+ 	mfcr	r9;							\
+ 	extra(vec);							\
+@@ -512,6 +541,12 @@ label##_relon_hv:						\
+ #define _MASKABLE_EXCEPTION_PSERIES(vec, label, h, extra)		\
+ 	__MASKABLE_EXCEPTION_PSERIES(vec, label, h, extra)
+ 
++#define MASKABLE_EXCEPTION_OOL(vec, label)				\
++	.globl label##_ool;						\
++label##_ool:								\
++	EXCEPTION_PROLOG_1(PACA_EXGEN, SOFTEN_TEST_PR, vec);		\
++	EXCEPTION_PROLOG_PSERIES_1(label##_common, EXC_STD);
++
+ #define MASKABLE_EXCEPTION_PSERIES(loc, vec, label)			\
+ 	. = loc;							\
+ 	.globl label##_pSeries;						\
+diff --git a/arch/powerpc/include/asm/feature-fixups.h b/arch/powerpc/include/asm/feature-fixups.h
+index 7068bafbb2d6..145a37ab2d3e 100644
+--- a/arch/powerpc/include/asm/feature-fixups.h
++++ b/arch/powerpc/include/asm/feature-fixups.h
+@@ -184,6 +184,22 @@ label##3:					       	\
+ 	FTR_ENTRY_OFFSET label##1b-label##3b;		\
+ 	.popsection;
+ 
++#define STF_ENTRY_BARRIER_FIXUP_SECTION			\
++953:							\
++	.pushsection __stf_entry_barrier_fixup,"a";	\
++	.align 2;					\
++954:							\
++	FTR_ENTRY_OFFSET 953b-954b;			\
++	.popsection;
++
++#define STF_EXIT_BARRIER_FIXUP_SECTION			\
++955:							\
++	.pushsection __stf_exit_barrier_fixup,"a";	\
++	.align 2;					\
++956:							\
++	FTR_ENTRY_OFFSET 955b-956b;			\
++	.popsection;
++
+ #define RFI_FLUSH_FIXUP_SECTION				\
+ 951:							\
+ 	.pushsection __rfi_flush_fixup,"a";		\
+@@ -192,10 +208,34 @@ label##3:					       	\
+ 	FTR_ENTRY_OFFSET 951b-952b;			\
+ 	.popsection;
+ 
++#define NOSPEC_BARRIER_FIXUP_SECTION			\
++953:							\
++	.pushsection __barrier_nospec_fixup,"a";	\
++	.align 2;					\
++954:							\
++	FTR_ENTRY_OFFSET 953b-954b;			\
++	.popsection;
++
++#define START_BTB_FLUSH_SECTION			\
++955:							\
++
++#define END_BTB_FLUSH_SECTION			\
++956:							\
++	.pushsection __btb_flush_fixup,"a";	\
++	.align 2;							\
++957:						\
++	FTR_ENTRY_OFFSET 955b-957b;			\
++	FTR_ENTRY_OFFSET 956b-957b;			\
++	.popsection;
+ 
+ #ifndef __ASSEMBLY__
+ 
++extern long stf_barrier_fallback;
++extern long __start___stf_entry_barrier_fixup, __stop___stf_entry_barrier_fixup;
++extern long __start___stf_exit_barrier_fixup, __stop___stf_exit_barrier_fixup;
+ extern long __start___rfi_flush_fixup, __stop___rfi_flush_fixup;
++extern long __start___barrier_nospec_fixup, __stop___barrier_nospec_fixup;
++extern long __start__btb_flush_fixup, __stop__btb_flush_fixup;
+ 
+ #endif
+ 
+diff --git a/arch/powerpc/include/asm/hvcall.h b/arch/powerpc/include/asm/hvcall.h
+index 449bbb87c257..b57db9d09db9 100644
+--- a/arch/powerpc/include/asm/hvcall.h
++++ b/arch/powerpc/include/asm/hvcall.h
+@@ -292,10 +292,15 @@
+ #define H_CPU_CHAR_L1D_FLUSH_ORI30	(1ull << 61) // IBM bit 2
+ #define H_CPU_CHAR_L1D_FLUSH_TRIG2	(1ull << 60) // IBM bit 3
+ #define H_CPU_CHAR_L1D_THREAD_PRIV	(1ull << 59) // IBM bit 4
++#define H_CPU_CHAR_BRANCH_HINTS_HONORED	(1ull << 58) // IBM bit 5
++#define H_CPU_CHAR_THREAD_RECONFIG_CTRL	(1ull << 57) // IBM bit 6
++#define H_CPU_CHAR_COUNT_CACHE_DISABLED	(1ull << 56) // IBM bit 7
++#define H_CPU_CHAR_BCCTR_FLUSH_ASSIST	(1ull << 54) // IBM bit 9
+ 
+ #define H_CPU_BEHAV_FAVOUR_SECURITY	(1ull << 63) // IBM bit 0
+ #define H_CPU_BEHAV_L1D_FLUSH_PR	(1ull << 62) // IBM bit 1
+ #define H_CPU_BEHAV_BNDS_CHK_SPEC_BAR	(1ull << 61) // IBM bit 2
++#define H_CPU_BEHAV_FLUSH_COUNT_CACHE	(1ull << 58) // IBM bit 5
+ 
+ #ifndef __ASSEMBLY__
+ #include <linux/types.h>
+diff --git a/arch/powerpc/include/asm/paca.h b/arch/powerpc/include/asm/paca.h
+index 45e2aefece16..08e5df3395fa 100644
+--- a/arch/powerpc/include/asm/paca.h
++++ b/arch/powerpc/include/asm/paca.h
+@@ -199,8 +199,7 @@ struct paca_struct {
+ 	 */
+ 	u64 exrfi[13] __aligned(0x80);
+ 	void *rfi_flush_fallback_area;
+-	u64 l1d_flush_congruence;
+-	u64 l1d_flush_sets;
++	u64 l1d_flush_size;
+ #endif
+ };
+ 
+diff --git a/arch/powerpc/include/asm/ppc-opcode.h b/arch/powerpc/include/asm/ppc-opcode.h
+index 7ab04fc59e24..faf1bb045dee 100644
+--- a/arch/powerpc/include/asm/ppc-opcode.h
++++ b/arch/powerpc/include/asm/ppc-opcode.h
+@@ -147,6 +147,7 @@
+ #define PPC_INST_LWSYNC			0x7c2004ac
+ #define PPC_INST_SYNC			0x7c0004ac
+ #define PPC_INST_SYNC_MASK		0xfc0007fe
++#define PPC_INST_ISYNC			0x4c00012c
+ #define PPC_INST_LXVD2X			0x7c000698
+ #define PPC_INST_MCRXR			0x7c000400
+ #define PPC_INST_MCRXR_MASK		0xfc0007fe
+diff --git a/arch/powerpc/include/asm/ppc_asm.h b/arch/powerpc/include/asm/ppc_asm.h
+index 160bb2311bbb..d219816b3e19 100644
+--- a/arch/powerpc/include/asm/ppc_asm.h
++++ b/arch/powerpc/include/asm/ppc_asm.h
+@@ -821,4 +821,15 @@ END_FTR_SECTION_NESTED(CPU_FTR_HAS_PPR,CPU_FTR_HAS_PPR,945)
+ 	.long 0x2400004c  /* rfid				*/
+ #endif /* !CONFIG_PPC_BOOK3E */
+ #endif /*  __ASSEMBLY__ */
++
++#ifdef CONFIG_PPC_FSL_BOOK3E
++#define BTB_FLUSH(reg)			\
++	lis reg,BUCSR_INIT@h;		\
++	ori reg,reg,BUCSR_INIT@l;	\
++	mtspr SPRN_BUCSR,reg;		\
++	isync;
++#else
++#define BTB_FLUSH(reg)
++#endif /* CONFIG_PPC_FSL_BOOK3E */
++
+ #endif /* _ASM_POWERPC_PPC_ASM_H */
+diff --git a/arch/powerpc/include/asm/reg_booke.h b/arch/powerpc/include/asm/reg_booke.h
+index 2fef74b474f0..410ebee9e339 100644
+--- a/arch/powerpc/include/asm/reg_booke.h
++++ b/arch/powerpc/include/asm/reg_booke.h
+@@ -41,7 +41,7 @@
+ #if defined(CONFIG_PPC_BOOK3E_64)
+ #define MSR_64BIT	MSR_CM
+ 
+-#define MSR_		(MSR_ME | MSR_CE)
++#define MSR_		(MSR_ME | MSR_RI | MSR_CE)
+ #define MSR_KERNEL	(MSR_ | MSR_64BIT)
+ #define MSR_USER32	(MSR_ | MSR_PR | MSR_EE)
+ #define MSR_USER64	(MSR_USER32 | MSR_64BIT)
+diff --git a/arch/powerpc/include/asm/security_features.h b/arch/powerpc/include/asm/security_features.h
+new file mode 100644
+index 000000000000..759597bf0fd8
+--- /dev/null
++++ b/arch/powerpc/include/asm/security_features.h
+@@ -0,0 +1,92 @@
++/* SPDX-License-Identifier: GPL-2.0+ */
++/*
++ * Security related feature bit definitions.
++ *
++ * Copyright 2018, Michael Ellerman, IBM Corporation.
++ */
++
++#ifndef _ASM_POWERPC_SECURITY_FEATURES_H
++#define _ASM_POWERPC_SECURITY_FEATURES_H
++
++
++extern unsigned long powerpc_security_features;
++extern bool rfi_flush;
++
++/* These are bit flags */
++enum stf_barrier_type {
++	STF_BARRIER_NONE	= 0x1,
++	STF_BARRIER_FALLBACK	= 0x2,
++	STF_BARRIER_EIEIO	= 0x4,
++	STF_BARRIER_SYNC_ORI	= 0x8,
++};
++
++void setup_stf_barrier(void);
++void do_stf_barrier_fixups(enum stf_barrier_type types);
++void setup_count_cache_flush(void);
++
++static inline void security_ftr_set(unsigned long feature)
++{
++	powerpc_security_features |= feature;
++}
++
++static inline void security_ftr_clear(unsigned long feature)
++{
++	powerpc_security_features &= ~feature;
++}
++
++static inline bool security_ftr_enabled(unsigned long feature)
++{
++	return !!(powerpc_security_features & feature);
++}
++
++
++// Features indicating support for Spectre/Meltdown mitigations
++
++// The L1-D cache can be flushed with ori r30,r30,0
++#define SEC_FTR_L1D_FLUSH_ORI30		0x0000000000000001ull
++
++// The L1-D cache can be flushed with mtspr 882,r0 (aka SPRN_TRIG2)
++#define SEC_FTR_L1D_FLUSH_TRIG2		0x0000000000000002ull
++
++// ori r31,r31,0 acts as a speculation barrier
++#define SEC_FTR_SPEC_BAR_ORI31		0x0000000000000004ull
++
++// Speculation past bctr is disabled
++#define SEC_FTR_BCCTRL_SERIALISED	0x0000000000000008ull
++
++// Entries in L1-D are private to a SMT thread
++#define SEC_FTR_L1D_THREAD_PRIV		0x0000000000000010ull
++
++// Indirect branch prediction cache disabled
++#define SEC_FTR_COUNT_CACHE_DISABLED	0x0000000000000020ull
++
++// bcctr 2,0,0 triggers a hardware assisted count cache flush
++#define SEC_FTR_BCCTR_FLUSH_ASSIST	0x0000000000000800ull
++
++
++// Features indicating need for Spectre/Meltdown mitigations
++
++// The L1-D cache should be flushed on MSR[HV] 1->0 transition (hypervisor to guest)
++#define SEC_FTR_L1D_FLUSH_HV		0x0000000000000040ull
++
++// The L1-D cache should be flushed on MSR[PR] 0->1 transition (kernel to userspace)
++#define SEC_FTR_L1D_FLUSH_PR		0x0000000000000080ull
++
++// A speculation barrier should be used for bounds checks (Spectre variant 1)
++#define SEC_FTR_BNDS_CHK_SPEC_BAR	0x0000000000000100ull
++
++// Firmware configuration indicates user favours security over performance
++#define SEC_FTR_FAVOUR_SECURITY		0x0000000000000200ull
++
++// Software required to flush count cache on context switch
++#define SEC_FTR_FLUSH_COUNT_CACHE	0x0000000000000400ull
++
++
++// Features enabled by default
++#define SEC_FTR_DEFAULT \
++	(SEC_FTR_L1D_FLUSH_HV | \
++	 SEC_FTR_L1D_FLUSH_PR | \
++	 SEC_FTR_BNDS_CHK_SPEC_BAR | \
++	 SEC_FTR_FAVOUR_SECURITY)
++
++#endif /* _ASM_POWERPC_SECURITY_FEATURES_H */
+diff --git a/arch/powerpc/include/asm/setup.h b/arch/powerpc/include/asm/setup.h
+index 7916b56f2e60..d299479c770b 100644
+--- a/arch/powerpc/include/asm/setup.h
++++ b/arch/powerpc/include/asm/setup.h
+@@ -8,6 +8,7 @@ extern void ppc_printk_progress(char *s, unsigned short hex);
+ 
+ extern unsigned int rtas_data;
+ extern unsigned long long memory_limit;
++extern bool init_mem_is_free;
+ extern unsigned long klimit;
+ extern void *zalloc_maybe_bootmem(size_t size, gfp_t mask);
+ 
+@@ -36,8 +37,28 @@ enum l1d_flush_type {
+ 	L1D_FLUSH_MTTRIG	= 0x8,
+ };
+ 
+-void __init setup_rfi_flush(enum l1d_flush_type, bool enable);
++void setup_rfi_flush(enum l1d_flush_type, bool enable);
+ void do_rfi_flush_fixups(enum l1d_flush_type types);
++#ifdef CONFIG_PPC_BARRIER_NOSPEC
++void setup_barrier_nospec(void);
++#else
++static inline void setup_barrier_nospec(void) { };
++#endif
++void do_barrier_nospec_fixups(bool enable);
++extern bool barrier_nospec_enabled;
++
++#ifdef CONFIG_PPC_BARRIER_NOSPEC
++void do_barrier_nospec_fixups_range(bool enable, void *start, void *end);
++#else
++static inline void do_barrier_nospec_fixups_range(bool enable, void *start, void *end) { };
++#endif
++
++#ifdef CONFIG_PPC_FSL_BOOK3E
++void setup_spectre_v2(void);
++#else
++static inline void setup_spectre_v2(void) {};
++#endif
++void do_btb_flush_fixups(void);
+ 
+ #endif /* !__ASSEMBLY__ */
+ 
+diff --git a/arch/powerpc/kernel/Makefile b/arch/powerpc/kernel/Makefile
+index ba336930d448..22ed3c32fca8 100644
+--- a/arch/powerpc/kernel/Makefile
++++ b/arch/powerpc/kernel/Makefile
+@@ -44,6 +44,7 @@ obj-$(CONFIG_PPC_BOOK3S_64)	+= cpu_setup_power.o
+ obj-$(CONFIG_PPC_BOOK3S_64)	+= mce.o mce_power.o
+ obj64-$(CONFIG_RELOCATABLE)	+= reloc_64.o
+ obj-$(CONFIG_PPC_BOOK3E_64)	+= exceptions-64e.o idle_book3e.o
++obj-$(CONFIG_PPC_BARRIER_NOSPEC) += security.o
+ obj-$(CONFIG_PPC64)		+= vdso64/
+ obj-$(CONFIG_ALTIVEC)		+= vecemu.o
+ obj-$(CONFIG_PPC_970_NAP)	+= idle_power4.o
+diff --git a/arch/powerpc/kernel/asm-offsets.c b/arch/powerpc/kernel/asm-offsets.c
+index d92705e3a0c1..de3c29c51503 100644
+--- a/arch/powerpc/kernel/asm-offsets.c
++++ b/arch/powerpc/kernel/asm-offsets.c
+@@ -245,8 +245,7 @@ int main(void)
+ 	DEFINE(PACA_IN_MCE, offsetof(struct paca_struct, in_mce));
+ 	DEFINE(PACA_RFI_FLUSH_FALLBACK_AREA, offsetof(struct paca_struct, rfi_flush_fallback_area));
+ 	DEFINE(PACA_EXRFI, offsetof(struct paca_struct, exrfi));
+-	DEFINE(PACA_L1D_FLUSH_CONGRUENCE, offsetof(struct paca_struct, l1d_flush_congruence));
+-	DEFINE(PACA_L1D_FLUSH_SETS, offsetof(struct paca_struct, l1d_flush_sets));
++	DEFINE(PACA_L1D_FLUSH_SIZE, offsetof(struct paca_struct, l1d_flush_size));
+ #endif
+ 	DEFINE(PACAHWCPUID, offsetof(struct paca_struct, hw_cpu_id));
+ 	DEFINE(PACAKEXECSTATE, offsetof(struct paca_struct, kexec_state));
+diff --git a/arch/powerpc/kernel/entry_32.S b/arch/powerpc/kernel/entry_32.S
+index 3728e617e17e..609bc7d01f13 100644
+--- a/arch/powerpc/kernel/entry_32.S
++++ b/arch/powerpc/kernel/entry_32.S
+@@ -33,6 +33,7 @@
+ #include <asm/unistd.h>
+ #include <asm/ftrace.h>
+ #include <asm/ptrace.h>
++#include <asm/barrier.h>
+ 
+ /*
+  * MSR_KERNEL is > 0x10000 on 4xx/Book-E since it include MSR_CE.
+@@ -340,6 +341,15 @@ syscall_dotrace_cont:
+ 	ori	r10,r10,sys_call_table@l
+ 	slwi	r0,r0,2
+ 	bge-	66f
++
++	barrier_nospec_asm
++	/*
++	 * Prevent the load of the handler below (based on the user-passed
++	 * system call number) being speculatively executed until the test
++	 * against NR_syscalls and branch to .66f above has
++	 * committed.
++	 */
++
+ 	lwzx	r10,r10,r0	/* Fetch system call handler [ptr] */
+ 	mtlr	r10
+ 	addi	r9,r1,STACK_FRAME_OVERHEAD
+diff --git a/arch/powerpc/kernel/entry_64.S b/arch/powerpc/kernel/entry_64.S
+index 59be96917369..6d36a4fb4acf 100644
+--- a/arch/powerpc/kernel/entry_64.S
++++ b/arch/powerpc/kernel/entry_64.S
+@@ -25,6 +25,7 @@
+ #include <asm/page.h>
+ #include <asm/mmu.h>
+ #include <asm/thread_info.h>
++#include <asm/code-patching-asm.h>
+ #include <asm/ppc_asm.h>
+ #include <asm/asm-offsets.h>
+ #include <asm/cputable.h>
+@@ -36,6 +37,7 @@
+ #include <asm/hw_irq.h>
+ #include <asm/context_tracking.h>
+ #include <asm/tm.h>
++#include <asm/barrier.h>
+ #ifdef CONFIG_PPC_BOOK3S
+ #include <asm/exception-64s.h>
+ #else
+@@ -75,6 +77,11 @@ END_FTR_SECTION_IFSET(CPU_FTR_TM)
+ 	std	r0,GPR0(r1)
+ 	std	r10,GPR1(r1)
+ 	beq	2f			/* if from kernel mode */
++#ifdef CONFIG_PPC_FSL_BOOK3E
++START_BTB_FLUSH_SECTION
++	BTB_FLUSH(r10)
++END_BTB_FLUSH_SECTION
++#endif
+ 	ACCOUNT_CPU_USER_ENTRY(r10, r11)
+ 2:	std	r2,GPR2(r1)
+ 	std	r3,GPR3(r1)
+@@ -177,6 +184,15 @@ system_call:			/* label this so stack traces look sane */
+ 	clrldi	r8,r8,32
+ 15:
+ 	slwi	r0,r0,4
++
++	barrier_nospec_asm
++	/*
++	 * Prevent the load of the handler below (based on the user-passed
++	 * system call number) being speculatively executed until the test
++	 * against NR_syscalls and branch to .Lsyscall_enosys above has
++	 * committed.
++	 */
++
+ 	ldx	r12,r11,r0	/* Fetch system call handler [ptr] */
+ 	mtctr   r12
+ 	bctrl			/* Call handler */
+@@ -440,6 +456,57 @@ _GLOBAL(ret_from_kernel_thread)
+ 	li	r3,0
+ 	b	.Lsyscall_exit
+ 
++#ifdef CONFIG_PPC_BOOK3S_64
++
++#define FLUSH_COUNT_CACHE	\
++1:	nop;			\
++	patch_site 1b, patch__call_flush_count_cache
++
++
++#define BCCTR_FLUSH	.long 0x4c400420
++
++.macro nops number
++	.rept \number
++	nop
++	.endr
++.endm
++
++.balign 32
++.global flush_count_cache
++flush_count_cache:
++	/* Save LR into r9 */
++	mflr	r9
++
++	.rept 64
++	bl	.+4
++	.endr
++	b	1f
++	nops	6
++
++	.balign 32
++	/* Restore LR */
++1:	mtlr	r9
++	li	r9,0x7fff
++	mtctr	r9
++
++	BCCTR_FLUSH
++
++2:	nop
++	patch_site 2b patch__flush_count_cache_return
++
++	nops	3
++
++	.rept 278
++	.balign 32
++	BCCTR_FLUSH
++	nops	7
++	.endr
++
++	blr
++#else
++#define FLUSH_COUNT_CACHE
++#endif /* CONFIG_PPC_BOOK3S_64 */
++
+ /*
+  * This routine switches between two different tasks.  The process
+  * state of one is saved on its kernel stack.  Then the state
+@@ -503,6 +570,8 @@ BEGIN_FTR_SECTION
+ END_FTR_SECTION_IFSET(CPU_FTR_ARCH_207S)
+ #endif
+ 
++	FLUSH_COUNT_CACHE
++
+ #ifdef CONFIG_SMP
+ 	/* We need a sync somewhere here to make sure that if the
+ 	 * previous task gets rescheduled on another CPU, it sees all
+diff --git a/arch/powerpc/kernel/exceptions-64e.S b/arch/powerpc/kernel/exceptions-64e.S
+index 5cc93f0b52ca..48ec841ea1bf 100644
+--- a/arch/powerpc/kernel/exceptions-64e.S
++++ b/arch/powerpc/kernel/exceptions-64e.S
+@@ -295,7 +295,8 @@ ret_from_mc_except:
+ 	andi.	r10,r11,MSR_PR;		/* save stack pointer */	    \
+ 	beq	1f;			/* branch around if supervisor */   \
+ 	ld	r1,PACAKSAVE(r13);	/* get kernel stack coming from usr */\
+-1:	cmpdi	cr1,r1,0;		/* check if SP makes sense */	    \
++1:	type##_BTB_FLUSH		\
++	cmpdi	cr1,r1,0;		/* check if SP makes sense */	    \
+ 	bge-	cr1,exc_##n##_bad_stack;/* bad stack (TODO: out of line) */ \
+ 	mfspr	r10,SPRN_##type##_SRR0;	/* read SRR0 before touching stack */
+ 
+@@ -327,6 +328,30 @@ ret_from_mc_except:
+ #define SPRN_MC_SRR0	SPRN_MCSRR0
+ #define SPRN_MC_SRR1	SPRN_MCSRR1
+ 
++#ifdef CONFIG_PPC_FSL_BOOK3E
++#define GEN_BTB_FLUSH			\
++	START_BTB_FLUSH_SECTION		\
++		beq 1f;			\
++		BTB_FLUSH(r10)			\
++		1:		\
++	END_BTB_FLUSH_SECTION
++
++#define CRIT_BTB_FLUSH			\
++	START_BTB_FLUSH_SECTION		\
++		BTB_FLUSH(r10)		\
++	END_BTB_FLUSH_SECTION
++
++#define DBG_BTB_FLUSH CRIT_BTB_FLUSH
++#define MC_BTB_FLUSH CRIT_BTB_FLUSH
++#define GDBELL_BTB_FLUSH GEN_BTB_FLUSH
++#else
++#define GEN_BTB_FLUSH
++#define CRIT_BTB_FLUSH
++#define DBG_BTB_FLUSH
++#define MC_BTB_FLUSH
++#define GDBELL_BTB_FLUSH
++#endif
++
+ #define NORMAL_EXCEPTION_PROLOG(n, intnum, addition)			    \
+ 	EXCEPTION_PROLOG(n, intnum, GEN, addition##_GEN(n))
+ 
+diff --git a/arch/powerpc/kernel/exceptions-64s.S b/arch/powerpc/kernel/exceptions-64s.S
+index 938a30fef031..10e7cec9553d 100644
+--- a/arch/powerpc/kernel/exceptions-64s.S
++++ b/arch/powerpc/kernel/exceptions-64s.S
+@@ -36,6 +36,7 @@ BEGIN_FTR_SECTION						\
+ END_FTR_SECTION_IFSET(CPU_FTR_REAL_LE)				\
+ 	mr	r9,r13 ;					\
+ 	GET_PACA(r13) ;						\
++	INTERRUPT_TO_KERNEL ;					\
+ 	mfspr	r11,SPRN_SRR0 ;					\
+ 0:
+ 
+@@ -292,7 +293,9 @@ hardware_interrupt_hv:
+ 	. = 0x900
+ 	.globl decrementer_pSeries
+ decrementer_pSeries:
+-	_MASKABLE_EXCEPTION_PSERIES(0x900, decrementer, EXC_STD, SOFTEN_TEST_PR)
++	SET_SCRATCH0(r13)
++	EXCEPTION_PROLOG_0(PACA_EXGEN)
++	b	decrementer_ool
+ 
+ 	STD_EXCEPTION_HV(0x980, 0x982, hdecrementer)
+ 
+@@ -319,6 +322,7 @@ system_call_pSeries:
+ 	OPT_GET_SPR(r9, SPRN_PPR, CPU_FTR_HAS_PPR);
+ 	HMT_MEDIUM;
+ 	std	r10,PACA_EXGEN+EX_R10(r13)
++	INTERRUPT_TO_KERNEL
+ 	OPT_SAVE_REG_TO_PACA(PACA_EXGEN+EX_PPR, r9, CPU_FTR_HAS_PPR);
+ 	mfcr	r9
+ 	KVMTEST(0xc00)
+@@ -607,6 +611,7 @@ END_FTR_SECTION_IFSET(CPU_FTR_CFAR)
+ 
+ 	.align	7
+ 	/* moved from 0xe00 */
++	MASKABLE_EXCEPTION_OOL(0x900, decrementer)
+ 	STD_EXCEPTION_HV_OOL(0xe02, h_data_storage)
+ 	KVM_HANDLER_SKIP(PACA_EXGEN, EXC_HV, 0xe02)
+ 	STD_EXCEPTION_HV_OOL(0xe22, h_instr_storage)
+@@ -1564,6 +1569,21 @@ power4_fixup_nap:
+ 	blr
+ #endif
+ 
++	.balign 16
++	.globl stf_barrier_fallback
++stf_barrier_fallback:
++	std	r9,PACA_EXRFI+EX_R9(r13)
++	std	r10,PACA_EXRFI+EX_R10(r13)
++	sync
++	ld	r9,PACA_EXRFI+EX_R9(r13)
++	ld	r10,PACA_EXRFI+EX_R10(r13)
++	ori	31,31,0
++	.rept 14
++	b	1f
++1:
++	.endr
++	blr
++
+ 	.globl rfi_flush_fallback
+ rfi_flush_fallback:
+ 	SET_SCRATCH0(r13);
+@@ -1571,39 +1591,37 @@ rfi_flush_fallback:
+ 	std	r9,PACA_EXRFI+EX_R9(r13)
+ 	std	r10,PACA_EXRFI+EX_R10(r13)
+ 	std	r11,PACA_EXRFI+EX_R11(r13)
+-	std	r12,PACA_EXRFI+EX_R12(r13)
+-	std	r8,PACA_EXRFI+EX_R13(r13)
+ 	mfctr	r9
+ 	ld	r10,PACA_RFI_FLUSH_FALLBACK_AREA(r13)
+-	ld	r11,PACA_L1D_FLUSH_SETS(r13)
+-	ld	r12,PACA_L1D_FLUSH_CONGRUENCE(r13)
+-	/*
+-	 * The load adresses are at staggered offsets within cachelines,
+-	 * which suits some pipelines better (on others it should not
+-	 * hurt).
+-	 */
+-	addi	r12,r12,8
++	ld	r11,PACA_L1D_FLUSH_SIZE(r13)
++	srdi	r11,r11,(7 + 3) /* 128 byte lines, unrolled 8x */
+ 	mtctr	r11
+ 	DCBT_STOP_ALL_STREAM_IDS(r11) /* Stop prefetch streams */
+ 
+ 	/* order ld/st prior to dcbt stop all streams with flushing */
+ 	sync
+-1:	li	r8,0
+-	.rept	8 /* 8-way set associative */
+-	ldx	r11,r10,r8
+-	add	r8,r8,r12
+-	xor	r11,r11,r11	// Ensure r11 is 0 even if fallback area is not
+-	add	r8,r8,r11	// Add 0, this creates a dependency on the ldx
+-	.endr
+-	addi	r10,r10,128 /* 128 byte cache line */
++
++	/*
++	 * The load adresses are at staggered offsets within cachelines,
++	 * which suits some pipelines better (on others it should not
++	 * hurt).
++	 */
++1:
++	ld	r11,(0x80 + 8)*0(r10)
++	ld	r11,(0x80 + 8)*1(r10)
++	ld	r11,(0x80 + 8)*2(r10)
++	ld	r11,(0x80 + 8)*3(r10)
++	ld	r11,(0x80 + 8)*4(r10)
++	ld	r11,(0x80 + 8)*5(r10)
++	ld	r11,(0x80 + 8)*6(r10)
++	ld	r11,(0x80 + 8)*7(r10)
++	addi	r10,r10,0x80*8
+ 	bdnz	1b
+ 
+ 	mtctr	r9
+ 	ld	r9,PACA_EXRFI+EX_R9(r13)
+ 	ld	r10,PACA_EXRFI+EX_R10(r13)
+ 	ld	r11,PACA_EXRFI+EX_R11(r13)
+-	ld	r12,PACA_EXRFI+EX_R12(r13)
+-	ld	r8,PACA_EXRFI+EX_R13(r13)
+ 	GET_SCRATCH0(r13);
+ 	rfid
+ 
+@@ -1614,39 +1632,37 @@ hrfi_flush_fallback:
+ 	std	r9,PACA_EXRFI+EX_R9(r13)
+ 	std	r10,PACA_EXRFI+EX_R10(r13)
+ 	std	r11,PACA_EXRFI+EX_R11(r13)
+-	std	r12,PACA_EXRFI+EX_R12(r13)
+-	std	r8,PACA_EXRFI+EX_R13(r13)
+ 	mfctr	r9
+ 	ld	r10,PACA_RFI_FLUSH_FALLBACK_AREA(r13)
+-	ld	r11,PACA_L1D_FLUSH_SETS(r13)
+-	ld	r12,PACA_L1D_FLUSH_CONGRUENCE(r13)
+-	/*
+-	 * The load adresses are at staggered offsets within cachelines,
+-	 * which suits some pipelines better (on others it should not
+-	 * hurt).
+-	 */
+-	addi	r12,r12,8
++	ld	r11,PACA_L1D_FLUSH_SIZE(r13)
++	srdi	r11,r11,(7 + 3) /* 128 byte lines, unrolled 8x */
+ 	mtctr	r11
+ 	DCBT_STOP_ALL_STREAM_IDS(r11) /* Stop prefetch streams */
+ 
+ 	/* order ld/st prior to dcbt stop all streams with flushing */
+ 	sync
+-1:	li	r8,0
+-	.rept	8 /* 8-way set associative */
+-	ldx	r11,r10,r8
+-	add	r8,r8,r12
+-	xor	r11,r11,r11	// Ensure r11 is 0 even if fallback area is not
+-	add	r8,r8,r11	// Add 0, this creates a dependency on the ldx
+-	.endr
+-	addi	r10,r10,128 /* 128 byte cache line */
++
++	/*
++	 * The load adresses are at staggered offsets within cachelines,
++	 * which suits some pipelines better (on others it should not
++	 * hurt).
++	 */
++1:
++	ld	r11,(0x80 + 8)*0(r10)
++	ld	r11,(0x80 + 8)*1(r10)
++	ld	r11,(0x80 + 8)*2(r10)
++	ld	r11,(0x80 + 8)*3(r10)
++	ld	r11,(0x80 + 8)*4(r10)
++	ld	r11,(0x80 + 8)*5(r10)
++	ld	r11,(0x80 + 8)*6(r10)
++	ld	r11,(0x80 + 8)*7(r10)
++	addi	r10,r10,0x80*8
+ 	bdnz	1b
+ 
+ 	mtctr	r9
+ 	ld	r9,PACA_EXRFI+EX_R9(r13)
+ 	ld	r10,PACA_EXRFI+EX_R10(r13)
+ 	ld	r11,PACA_EXRFI+EX_R11(r13)
+-	ld	r12,PACA_EXRFI+EX_R12(r13)
+-	ld	r8,PACA_EXRFI+EX_R13(r13)
+ 	GET_SCRATCH0(r13);
+ 	hrfid
+ 
+diff --git a/arch/powerpc/kernel/head_booke.h b/arch/powerpc/kernel/head_booke.h
+index a620203f7de3..7b98c7351f6c 100644
+--- a/arch/powerpc/kernel/head_booke.h
++++ b/arch/powerpc/kernel/head_booke.h
+@@ -31,6 +31,16 @@
+  */
+ #define THREAD_NORMSAVE(offset)	(THREAD_NORMSAVES + (offset * 4))
+ 
++#ifdef CONFIG_PPC_FSL_BOOK3E
++#define BOOKE_CLEAR_BTB(reg)									\
++START_BTB_FLUSH_SECTION								\
++	BTB_FLUSH(reg)									\
++END_BTB_FLUSH_SECTION
++#else
++#define BOOKE_CLEAR_BTB(reg)
++#endif
++
++
+ #define NORMAL_EXCEPTION_PROLOG(intno)						     \
+ 	mtspr	SPRN_SPRG_WSCRATCH0, r10;	/* save one register */	     \
+ 	mfspr	r10, SPRN_SPRG_THREAD;					     \
+@@ -42,6 +52,7 @@
+ 	andi.	r11, r11, MSR_PR;	/* check whether user or kernel    */\
+ 	mr	r11, r1;						     \
+ 	beq	1f;							     \
++	BOOKE_CLEAR_BTB(r11)						\
+ 	/* if from user, start at top of this thread's kernel stack */       \
+ 	lwz	r11, THREAD_INFO-THREAD(r10);				     \
+ 	ALLOC_STACK_FRAME(r11, THREAD_SIZE);				     \
+@@ -127,6 +138,7 @@
+ 	stw	r9,_CCR(r8);		/* save CR on stack		   */\
+ 	mfspr	r11,exc_level_srr1;	/* check whether user or kernel    */\
+ 	DO_KVM	BOOKE_INTERRUPT_##intno exc_level_srr1;		             \
++	BOOKE_CLEAR_BTB(r10)						\
+ 	andi.	r11,r11,MSR_PR;						     \
+ 	mfspr	r11,SPRN_SPRG_THREAD;	/* if from user, start at top of   */\
+ 	lwz	r11,THREAD_INFO-THREAD(r11); /* this thread's kernel stack */\
+diff --git a/arch/powerpc/kernel/head_fsl_booke.S b/arch/powerpc/kernel/head_fsl_booke.S
+index fffd1f96bb1d..275769b6fb0d 100644
+--- a/arch/powerpc/kernel/head_fsl_booke.S
++++ b/arch/powerpc/kernel/head_fsl_booke.S
+@@ -451,6 +451,13 @@ END_FTR_SECTION_IFSET(CPU_FTR_EMB_HV)
+ 	mfcr	r13
+ 	stw	r13, THREAD_NORMSAVE(3)(r10)
+ 	DO_KVM	BOOKE_INTERRUPT_DTLB_MISS SPRN_SRR1
++START_BTB_FLUSH_SECTION
++	mfspr r11, SPRN_SRR1
++	andi. r10,r11,MSR_PR
++	beq 1f
++	BTB_FLUSH(r10)
++1:
++END_BTB_FLUSH_SECTION
+ 	mfspr	r10, SPRN_DEAR		/* Get faulting address */
+ 
+ 	/* If we are faulting a kernel address, we have to use the
+@@ -545,6 +552,14 @@ END_FTR_SECTION_IFSET(CPU_FTR_EMB_HV)
+ 	mfcr	r13
+ 	stw	r13, THREAD_NORMSAVE(3)(r10)
+ 	DO_KVM	BOOKE_INTERRUPT_ITLB_MISS SPRN_SRR1
++START_BTB_FLUSH_SECTION
++	mfspr r11, SPRN_SRR1
++	andi. r10,r11,MSR_PR
++	beq 1f
++	BTB_FLUSH(r10)
++1:
++END_BTB_FLUSH_SECTION
++
+ 	mfspr	r10, SPRN_SRR0		/* Get faulting address */
+ 
+ 	/* If we are faulting a kernel address, we have to use the
+diff --git a/arch/powerpc/kernel/module.c b/arch/powerpc/kernel/module.c
+index 9547381b631a..ff009be97a42 100644
+--- a/arch/powerpc/kernel/module.c
++++ b/arch/powerpc/kernel/module.c
+@@ -67,7 +67,15 @@ int module_finalize(const Elf_Ehdr *hdr,
+ 		do_feature_fixups(powerpc_firmware_features,
+ 				  (void *)sect->sh_addr,
+ 				  (void *)sect->sh_addr + sect->sh_size);
+-#endif
++#endif /* CONFIG_PPC64 */
++
++#ifdef CONFIG_PPC_BARRIER_NOSPEC
++	sect = find_section(hdr, sechdrs, "__spec_barrier_fixup");
++	if (sect != NULL)
++		do_barrier_nospec_fixups_range(barrier_nospec_enabled,
++				  (void *)sect->sh_addr,
++				  (void *)sect->sh_addr + sect->sh_size);
++#endif /* CONFIG_PPC_BARRIER_NOSPEC */
+ 
+ 	sect = find_section(hdr, sechdrs, "__lwsync_fixup");
+ 	if (sect != NULL)
+diff --git a/arch/powerpc/kernel/security.c b/arch/powerpc/kernel/security.c
+new file mode 100644
+index 000000000000..fe30ddfd51ee
+--- /dev/null
++++ b/arch/powerpc/kernel/security.c
+@@ -0,0 +1,434 @@
++// SPDX-License-Identifier: GPL-2.0+
++//
++// Security related flags and so on.
++//
++// Copyright 2018, Michael Ellerman, IBM Corporation.
++
++#include <linux/cpu.h>
++#include <linux/kernel.h>
++#include <linux/debugfs.h>
++#include <linux/device.h>
++#include <linux/seq_buf.h>
++
++#include <asm/debug.h>
++#include <asm/asm-prototypes.h>
++#include <asm/code-patching.h>
++#include <asm/security_features.h>
++#include <asm/setup.h>
++
++
++unsigned long powerpc_security_features __read_mostly = SEC_FTR_DEFAULT;
++
++enum count_cache_flush_type {
++	COUNT_CACHE_FLUSH_NONE	= 0x1,
++	COUNT_CACHE_FLUSH_SW	= 0x2,
++	COUNT_CACHE_FLUSH_HW	= 0x4,
++};
++static enum count_cache_flush_type count_cache_flush_type = COUNT_CACHE_FLUSH_NONE;
++
++bool barrier_nospec_enabled;
++static bool no_nospec;
++static bool btb_flush_enabled;
++#ifdef CONFIG_PPC_FSL_BOOK3E
++static bool no_spectrev2;
++#endif
++
++static void enable_barrier_nospec(bool enable)
++{
++	barrier_nospec_enabled = enable;
++	do_barrier_nospec_fixups(enable);
++}
++
++void setup_barrier_nospec(void)
++{
++	bool enable;
++
++	/*
++	 * It would make sense to check SEC_FTR_SPEC_BAR_ORI31 below as well.
++	 * But there's a good reason not to. The two flags we check below are
++	 * both are enabled by default in the kernel, so if the hcall is not
++	 * functional they will be enabled.
++	 * On a system where the host firmware has been updated (so the ori
++	 * functions as a barrier), but on which the hypervisor (KVM/Qemu) has
++	 * not been updated, we would like to enable the barrier. Dropping the
++	 * check for SEC_FTR_SPEC_BAR_ORI31 achieves that. The only downside is
++	 * we potentially enable the barrier on systems where the host firmware
++	 * is not updated, but that's harmless as it's a no-op.
++	 */
++	enable = security_ftr_enabled(SEC_FTR_FAVOUR_SECURITY) &&
++		 security_ftr_enabled(SEC_FTR_BNDS_CHK_SPEC_BAR);
++
++	if (!no_nospec)
++		enable_barrier_nospec(enable);
++}
++
++static int __init handle_nospectre_v1(char *p)
++{
++	no_nospec = true;
++
++	return 0;
++}
++early_param("nospectre_v1", handle_nospectre_v1);
++
++#ifdef CONFIG_DEBUG_FS
++static int barrier_nospec_set(void *data, u64 val)
++{
++	switch (val) {
++	case 0:
++	case 1:
++		break;
++	default:
++		return -EINVAL;
++	}
++
++	if (!!val == !!barrier_nospec_enabled)
++		return 0;
++
++	enable_barrier_nospec(!!val);
++
++	return 0;
++}
++
++static int barrier_nospec_get(void *data, u64 *val)
++{
++	*val = barrier_nospec_enabled ? 1 : 0;
++	return 0;
++}
++
++DEFINE_SIMPLE_ATTRIBUTE(fops_barrier_nospec,
++			barrier_nospec_get, barrier_nospec_set, "%llu\n");
++
++static __init int barrier_nospec_debugfs_init(void)
++{
++	debugfs_create_file("barrier_nospec", 0600, powerpc_debugfs_root, NULL,
++			    &fops_barrier_nospec);
++	return 0;
++}
++device_initcall(barrier_nospec_debugfs_init);
++#endif /* CONFIG_DEBUG_FS */
++
++#ifdef CONFIG_PPC_FSL_BOOK3E
++static int __init handle_nospectre_v2(char *p)
++{
++	no_spectrev2 = true;
++
++	return 0;
++}
++early_param("nospectre_v2", handle_nospectre_v2);
++void setup_spectre_v2(void)
++{
++	if (no_spectrev2)
++		do_btb_flush_fixups();
++	else
++		btb_flush_enabled = true;
++}
++#endif /* CONFIG_PPC_FSL_BOOK3E */
++
++#ifdef CONFIG_PPC_BOOK3S_64
++ssize_t cpu_show_meltdown(struct device *dev, struct device_attribute *attr, char *buf)
++{
++	bool thread_priv;
++
++	thread_priv = security_ftr_enabled(SEC_FTR_L1D_THREAD_PRIV);
++
++	if (rfi_flush || thread_priv) {
++		struct seq_buf s;
++		seq_buf_init(&s, buf, PAGE_SIZE - 1);
++
++		seq_buf_printf(&s, "Mitigation: ");
++
++		if (rfi_flush)
++			seq_buf_printf(&s, "RFI Flush");
++
++		if (rfi_flush && thread_priv)
++			seq_buf_printf(&s, ", ");
++
++		if (thread_priv)
++			seq_buf_printf(&s, "L1D private per thread");
++
++		seq_buf_printf(&s, "\n");
++
++		return s.len;
++	}
++
++	if (!security_ftr_enabled(SEC_FTR_L1D_FLUSH_HV) &&
++	    !security_ftr_enabled(SEC_FTR_L1D_FLUSH_PR))
++		return sprintf(buf, "Not affected\n");
++
++	return sprintf(buf, "Vulnerable\n");
++}
++#endif
++
++ssize_t cpu_show_spectre_v1(struct device *dev, struct device_attribute *attr, char *buf)
++{
++	struct seq_buf s;
++
++	seq_buf_init(&s, buf, PAGE_SIZE - 1);
++
++	if (security_ftr_enabled(SEC_FTR_BNDS_CHK_SPEC_BAR)) {
++		if (barrier_nospec_enabled)
++			seq_buf_printf(&s, "Mitigation: __user pointer sanitization");
++		else
++			seq_buf_printf(&s, "Vulnerable");
++
++		if (security_ftr_enabled(SEC_FTR_SPEC_BAR_ORI31))
++			seq_buf_printf(&s, ", ori31 speculation barrier enabled");
++
++		seq_buf_printf(&s, "\n");
++	} else
++		seq_buf_printf(&s, "Not affected\n");
++
++	return s.len;
++}
++
++ssize_t cpu_show_spectre_v2(struct device *dev, struct device_attribute *attr, char *buf)
++{
++	struct seq_buf s;
++	bool bcs, ccd;
++
++	seq_buf_init(&s, buf, PAGE_SIZE - 1);
++
++	bcs = security_ftr_enabled(SEC_FTR_BCCTRL_SERIALISED);
++	ccd = security_ftr_enabled(SEC_FTR_COUNT_CACHE_DISABLED);
++
++	if (bcs || ccd) {
++		seq_buf_printf(&s, "Mitigation: ");
++
++		if (bcs)
++			seq_buf_printf(&s, "Indirect branch serialisation (kernel only)");
++
++		if (bcs && ccd)
++			seq_buf_printf(&s, ", ");
++
++		if (ccd)
++			seq_buf_printf(&s, "Indirect branch cache disabled");
++	} else if (count_cache_flush_type != COUNT_CACHE_FLUSH_NONE) {
++		seq_buf_printf(&s, "Mitigation: Software count cache flush");
++
++		if (count_cache_flush_type == COUNT_CACHE_FLUSH_HW)
++			seq_buf_printf(&s, " (hardware accelerated)");
++	} else if (btb_flush_enabled) {
++		seq_buf_printf(&s, "Mitigation: Branch predictor state flush");
++	} else {
++		seq_buf_printf(&s, "Vulnerable");
++	}
++
++	seq_buf_printf(&s, "\n");
++
++	return s.len;
++}
++
++#ifdef CONFIG_PPC_BOOK3S_64
++/*
++ * Store-forwarding barrier support.
++ */
++
++static enum stf_barrier_type stf_enabled_flush_types;
++static bool no_stf_barrier;
++bool stf_barrier;
++
++static int __init handle_no_stf_barrier(char *p)
++{
++	pr_info("stf-barrier: disabled on command line.");
++	no_stf_barrier = true;
++	return 0;
++}
++
++early_param("no_stf_barrier", handle_no_stf_barrier);
++
++/* This is the generic flag used by other architectures */
++static int __init handle_ssbd(char *p)
++{
++	if (!p || strncmp(p, "auto", 5) == 0 || strncmp(p, "on", 2) == 0 ) {
++		/* Until firmware tells us, we have the barrier with auto */
++		return 0;
++	} else if (strncmp(p, "off", 3) == 0) {
++		handle_no_stf_barrier(NULL);
++		return 0;
++	} else
++		return 1;
++
++	return 0;
++}
++early_param("spec_store_bypass_disable", handle_ssbd);
++
++/* This is the generic flag used by other architectures */
++static int __init handle_no_ssbd(char *p)
++{
++	handle_no_stf_barrier(NULL);
++	return 0;
++}
++early_param("nospec_store_bypass_disable", handle_no_ssbd);
++
++static void stf_barrier_enable(bool enable)
++{
++	if (enable)
++		do_stf_barrier_fixups(stf_enabled_flush_types);
++	else
++		do_stf_barrier_fixups(STF_BARRIER_NONE);
++
++	stf_barrier = enable;
++}
++
++void setup_stf_barrier(void)
++{
++	enum stf_barrier_type type;
++	bool enable, hv;
++
++	hv = cpu_has_feature(CPU_FTR_HVMODE);
++
++	/* Default to fallback in case fw-features are not available */
++	if (cpu_has_feature(CPU_FTR_ARCH_207S))
++		type = STF_BARRIER_SYNC_ORI;
++	else if (cpu_has_feature(CPU_FTR_ARCH_206))
++		type = STF_BARRIER_FALLBACK;
++	else
++		type = STF_BARRIER_NONE;
++
++	enable = security_ftr_enabled(SEC_FTR_FAVOUR_SECURITY) &&
++		(security_ftr_enabled(SEC_FTR_L1D_FLUSH_PR) ||
++		 (security_ftr_enabled(SEC_FTR_L1D_FLUSH_HV) && hv));
++
++	if (type == STF_BARRIER_FALLBACK) {
++		pr_info("stf-barrier: fallback barrier available\n");
++	} else if (type == STF_BARRIER_SYNC_ORI) {
++		pr_info("stf-barrier: hwsync barrier available\n");
++	} else if (type == STF_BARRIER_EIEIO) {
++		pr_info("stf-barrier: eieio barrier available\n");
++	}
++
++	stf_enabled_flush_types = type;
++
++	if (!no_stf_barrier)
++		stf_barrier_enable(enable);
++}
++
++ssize_t cpu_show_spec_store_bypass(struct device *dev, struct device_attribute *attr, char *buf)
++{
++	if (stf_barrier && stf_enabled_flush_types != STF_BARRIER_NONE) {
++		const char *type;
++		switch (stf_enabled_flush_types) {
++		case STF_BARRIER_EIEIO:
++			type = "eieio";
++			break;
++		case STF_BARRIER_SYNC_ORI:
++			type = "hwsync";
++			break;
++		case STF_BARRIER_FALLBACK:
++			type = "fallback";
++			break;
++		default:
++			type = "unknown";
++		}
++		return sprintf(buf, "Mitigation: Kernel entry/exit barrier (%s)\n", type);
++	}
++
++	if (!security_ftr_enabled(SEC_FTR_L1D_FLUSH_HV) &&
++	    !security_ftr_enabled(SEC_FTR_L1D_FLUSH_PR))
++		return sprintf(buf, "Not affected\n");
++
++	return sprintf(buf, "Vulnerable\n");
++}
++
++#ifdef CONFIG_DEBUG_FS
++static int stf_barrier_set(void *data, u64 val)
++{
++	bool enable;
++
++	if (val == 1)
++		enable = true;
++	else if (val == 0)
++		enable = false;
++	else
++		return -EINVAL;
++
++	/* Only do anything if we're changing state */
++	if (enable != stf_barrier)
++		stf_barrier_enable(enable);
++
++	return 0;
++}
++
++static int stf_barrier_get(void *data, u64 *val)
++{
++	*val = stf_barrier ? 1 : 0;
++	return 0;
++}
++
++DEFINE_SIMPLE_ATTRIBUTE(fops_stf_barrier, stf_barrier_get, stf_barrier_set, "%llu\n");
++
++static __init int stf_barrier_debugfs_init(void)
++{
++	debugfs_create_file("stf_barrier", 0600, powerpc_debugfs_root, NULL, &fops_stf_barrier);
++	return 0;
++}
++device_initcall(stf_barrier_debugfs_init);
++#endif /* CONFIG_DEBUG_FS */
++
++static void toggle_count_cache_flush(bool enable)
++{
++	if (!enable || !security_ftr_enabled(SEC_FTR_FLUSH_COUNT_CACHE)) {
++		patch_instruction_site(&patch__call_flush_count_cache, PPC_INST_NOP);
++		count_cache_flush_type = COUNT_CACHE_FLUSH_NONE;
++		pr_info("count-cache-flush: software flush disabled.\n");
++		return;
++	}
++
++	patch_branch_site(&patch__call_flush_count_cache,
++			  (u64)&flush_count_cache, BRANCH_SET_LINK);
++
++	if (!security_ftr_enabled(SEC_FTR_BCCTR_FLUSH_ASSIST)) {
++		count_cache_flush_type = COUNT_CACHE_FLUSH_SW;
++		pr_info("count-cache-flush: full software flush sequence enabled.\n");
++		return;
++	}
++
++	patch_instruction_site(&patch__flush_count_cache_return, PPC_INST_BLR);
++	count_cache_flush_type = COUNT_CACHE_FLUSH_HW;
++	pr_info("count-cache-flush: hardware assisted flush sequence enabled\n");
++}
++
++void setup_count_cache_flush(void)
++{
++	toggle_count_cache_flush(true);
++}
++
++#ifdef CONFIG_DEBUG_FS
++static int count_cache_flush_set(void *data, u64 val)
++{
++	bool enable;
++
++	if (val == 1)
++		enable = true;
++	else if (val == 0)
++		enable = false;
++	else
++		return -EINVAL;
++
++	toggle_count_cache_flush(enable);
++
++	return 0;
++}
++
++static int count_cache_flush_get(void *data, u64 *val)
++{
++	if (count_cache_flush_type == COUNT_CACHE_FLUSH_NONE)
++		*val = 0;
++	else
++		*val = 1;
++
++	return 0;
++}
++
++DEFINE_SIMPLE_ATTRIBUTE(fops_count_cache_flush, count_cache_flush_get,
++			count_cache_flush_set, "%llu\n");
++
++static __init int count_cache_flush_debugfs_init(void)
++{
++	debugfs_create_file("count_cache_flush", 0600, powerpc_debugfs_root,
++			    NULL, &fops_count_cache_flush);
++	return 0;
++}
++device_initcall(count_cache_flush_debugfs_init);
++#endif /* CONFIG_DEBUG_FS */
++#endif /* CONFIG_PPC_BOOK3S_64 */
+diff --git a/arch/powerpc/kernel/setup_32.c b/arch/powerpc/kernel/setup_32.c
+index ad8c9db61237..cb37f27bb928 100644
+--- a/arch/powerpc/kernel/setup_32.c
++++ b/arch/powerpc/kernel/setup_32.c
+@@ -322,6 +322,9 @@ void __init setup_arch(char **cmdline_p)
+ 		ppc_md.setup_arch();
+ 	if ( ppc_md.progress ) ppc_md.progress("arch: exit", 0x3eab);
+ 
++	setup_barrier_nospec();
++	setup_spectre_v2();
++
+ 	paging_init();
+ 
+ 	/* Initialize the MMU context management stuff */
+diff --git a/arch/powerpc/kernel/setup_64.c b/arch/powerpc/kernel/setup_64.c
+index 9eb469bed22b..11590f6cb2f9 100644
+--- a/arch/powerpc/kernel/setup_64.c
++++ b/arch/powerpc/kernel/setup_64.c
+@@ -736,6 +736,9 @@ void __init setup_arch(char **cmdline_p)
+ 	if (ppc_md.setup_arch)
+ 		ppc_md.setup_arch();
+ 
++	setup_barrier_nospec();
++	setup_spectre_v2();
++
+ 	paging_init();
+ 
+ 	/* Initialize the MMU context management stuff */
+@@ -873,9 +876,6 @@ static void do_nothing(void *unused)
+ 
+ void rfi_flush_enable(bool enable)
+ {
+-	if (rfi_flush == enable)
+-		return;
+-
+ 	if (enable) {
+ 		do_rfi_flush_fixups(enabled_flush_types);
+ 		on_each_cpu(do_nothing, NULL, 1);
+@@ -885,11 +885,15 @@ void rfi_flush_enable(bool enable)
+ 	rfi_flush = enable;
+ }
+ 
+-static void init_fallback_flush(void)
++static void __ref init_fallback_flush(void)
+ {
+ 	u64 l1d_size, limit;
+ 	int cpu;
+ 
++	/* Only allocate the fallback flush area once (at boot time). */
++	if (l1d_flush_fallback_area)
++		return;
++
+ 	l1d_size = ppc64_caches.dsize;
+ 	limit = min(safe_stack_limit(), ppc64_rma_size);
+ 
+@@ -902,34 +906,23 @@ static void init_fallback_flush(void)
+ 	memset(l1d_flush_fallback_area, 0, l1d_size * 2);
+ 
+ 	for_each_possible_cpu(cpu) {
+-		/*
+-		 * The fallback flush is currently coded for 8-way
+-		 * associativity. Different associativity is possible, but it
+-		 * will be treated as 8-way and may not evict the lines as
+-		 * effectively.
+-		 *
+-		 * 128 byte lines are mandatory.
+-		 */
+-		u64 c = l1d_size / 8;
+-
+ 		paca[cpu].rfi_flush_fallback_area = l1d_flush_fallback_area;
+-		paca[cpu].l1d_flush_congruence = c;
+-		paca[cpu].l1d_flush_sets = c / 128;
++		paca[cpu].l1d_flush_size = l1d_size;
+ 	}
+ }
+ 
+-void __init setup_rfi_flush(enum l1d_flush_type types, bool enable)
++void setup_rfi_flush(enum l1d_flush_type types, bool enable)
+ {
+ 	if (types & L1D_FLUSH_FALLBACK) {
+-		pr_info("rfi-flush: Using fallback displacement flush\n");
++		pr_info("rfi-flush: fallback displacement flush available\n");
+ 		init_fallback_flush();
+ 	}
+ 
+ 	if (types & L1D_FLUSH_ORI)
+-		pr_info("rfi-flush: Using ori type flush\n");
++		pr_info("rfi-flush: ori type flush available\n");
+ 
+ 	if (types & L1D_FLUSH_MTTRIG)
+-		pr_info("rfi-flush: Using mttrig type flush\n");
++		pr_info("rfi-flush: mttrig type flush available\n");
+ 
+ 	enabled_flush_types = types;
+ 
+@@ -940,13 +933,19 @@ void __init setup_rfi_flush(enum l1d_flush_type types, bool enable)
+ #ifdef CONFIG_DEBUG_FS
+ static int rfi_flush_set(void *data, u64 val)
+ {
++	bool enable;
++
+ 	if (val == 1)
+-		rfi_flush_enable(true);
++		enable = true;
+ 	else if (val == 0)
+-		rfi_flush_enable(false);
++		enable = false;
+ 	else
+ 		return -EINVAL;
+ 
++	/* Only do anything if we're changing state */
++	if (enable != rfi_flush)
++		rfi_flush_enable(enable);
++
+ 	return 0;
+ }
+ 
+@@ -965,12 +964,4 @@ static __init int rfi_flush_debugfs_init(void)
+ }
+ device_initcall(rfi_flush_debugfs_init);
+ #endif
+-
+-ssize_t cpu_show_meltdown(struct device *dev, struct device_attribute *attr, char *buf)
+-{
+-	if (rfi_flush)
+-		return sprintf(buf, "Mitigation: RFI Flush\n");
+-
+-	return sprintf(buf, "Vulnerable\n");
+-}
+ #endif /* CONFIG_PPC_BOOK3S_64 */
+diff --git a/arch/powerpc/kernel/vmlinux.lds.S b/arch/powerpc/kernel/vmlinux.lds.S
+index 072a23a17350..876ac9d52afc 100644
+--- a/arch/powerpc/kernel/vmlinux.lds.S
++++ b/arch/powerpc/kernel/vmlinux.lds.S
+@@ -73,14 +73,45 @@ SECTIONS
+ 	RODATA
+ 
+ #ifdef CONFIG_PPC64
++	. = ALIGN(8);
++	__stf_entry_barrier_fixup : AT(ADDR(__stf_entry_barrier_fixup) - LOAD_OFFSET) {
++		__start___stf_entry_barrier_fixup = .;
++		*(__stf_entry_barrier_fixup)
++		__stop___stf_entry_barrier_fixup = .;
++	}
++
++	. = ALIGN(8);
++	__stf_exit_barrier_fixup : AT(ADDR(__stf_exit_barrier_fixup) - LOAD_OFFSET) {
++		__start___stf_exit_barrier_fixup = .;
++		*(__stf_exit_barrier_fixup)
++		__stop___stf_exit_barrier_fixup = .;
++	}
++
+ 	. = ALIGN(8);
+ 	__rfi_flush_fixup : AT(ADDR(__rfi_flush_fixup) - LOAD_OFFSET) {
+ 		__start___rfi_flush_fixup = .;
+ 		*(__rfi_flush_fixup)
+ 		__stop___rfi_flush_fixup = .;
+ 	}
+-#endif
++#endif /* CONFIG_PPC64 */
+ 
++#ifdef CONFIG_PPC_BARRIER_NOSPEC
++	. = ALIGN(8);
++	__spec_barrier_fixup : AT(ADDR(__spec_barrier_fixup) - LOAD_OFFSET) {
++		__start___barrier_nospec_fixup = .;
++		*(__barrier_nospec_fixup)
++		__stop___barrier_nospec_fixup = .;
++	}
++#endif /* CONFIG_PPC_BARRIER_NOSPEC */
++
++#ifdef CONFIG_PPC_FSL_BOOK3E
++	. = ALIGN(8);
++	__spec_btb_flush_fixup : AT(ADDR(__spec_btb_flush_fixup) - LOAD_OFFSET) {
++		__start__btb_flush_fixup = .;
++		*(__btb_flush_fixup)
++		__stop__btb_flush_fixup = .;
++	}
++#endif
+ 	EXCEPTION_TABLE(0)
+ 
+ 	NOTES :kernel :notes
+diff --git a/arch/powerpc/kvm/bookehv_interrupts.S b/arch/powerpc/kvm/bookehv_interrupts.S
+index 81bd8a07aa51..612b7f6a887f 100644
+--- a/arch/powerpc/kvm/bookehv_interrupts.S
++++ b/arch/powerpc/kvm/bookehv_interrupts.S
+@@ -75,6 +75,10 @@
+ 	PPC_LL	r1, VCPU_HOST_STACK(r4)
+ 	PPC_LL	r2, HOST_R2(r1)
+ 
++START_BTB_FLUSH_SECTION
++	BTB_FLUSH(r10)
++END_BTB_FLUSH_SECTION
++
+ 	mfspr	r10, SPRN_PID
+ 	lwz	r8, VCPU_HOST_PID(r4)
+ 	PPC_LL	r11, VCPU_SHARED(r4)
+diff --git a/arch/powerpc/kvm/e500_emulate.c b/arch/powerpc/kvm/e500_emulate.c
+index 990db69a1d0b..fa88f641ac03 100644
+--- a/arch/powerpc/kvm/e500_emulate.c
++++ b/arch/powerpc/kvm/e500_emulate.c
+@@ -277,6 +277,13 @@ int kvmppc_core_emulate_mtspr_e500(struct kvm_vcpu *vcpu, int sprn, ulong spr_va
+ 		vcpu->arch.pwrmgtcr0 = spr_val;
+ 		break;
+ 
++	case SPRN_BUCSR:
++		/*
++		 * If we are here, it means that we have already flushed the
++		 * branch predictor, so just return to guest.
++		 */
++		break;
++
+ 	/* extra exceptions */
+ #ifdef CONFIG_SPE_POSSIBLE
+ 	case SPRN_IVOR32:
+diff --git a/arch/powerpc/lib/code-patching.c b/arch/powerpc/lib/code-patching.c
+index d5edbeb8eb82..31d31a10f71f 100644
+--- a/arch/powerpc/lib/code-patching.c
++++ b/arch/powerpc/lib/code-patching.c
+@@ -14,12 +14,25 @@
+ #include <asm/page.h>
+ #include <asm/code-patching.h>
+ #include <asm/uaccess.h>
++#include <asm/setup.h>
++#include <asm/sections.h>
+ 
+ 
++static inline bool is_init(unsigned int *addr)
++{
++	return addr >= (unsigned int *)__init_begin && addr < (unsigned int *)__init_end;
++}
++
+ int patch_instruction(unsigned int *addr, unsigned int instr)
+ {
+ 	int err;
+ 
++	/* Make sure we aren't patching a freed init section */
++	if (*PTRRELOC(&init_mem_is_free) && is_init(addr)) {
++		pr_debug("Skipping init section patching addr: 0x%px\n", addr);
++		return 0;
++	}
++
+ 	__put_user_size(instr, addr, 4, err);
+ 	if (err)
+ 		return err;
+@@ -32,6 +45,22 @@ int patch_branch(unsigned int *addr, unsigned long target, int flags)
+ 	return patch_instruction(addr, create_branch(addr, target, flags));
+ }
+ 
++int patch_branch_site(s32 *site, unsigned long target, int flags)
++{
++	unsigned int *addr;
++
++	addr = (unsigned int *)((unsigned long)site + *site);
++	return patch_instruction(addr, create_branch(addr, target, flags));
++}
++
++int patch_instruction_site(s32 *site, unsigned int instr)
++{
++	unsigned int *addr;
++
++	addr = (unsigned int *)((unsigned long)site + *site);
++	return patch_instruction(addr, instr);
++}
++
+ unsigned int create_branch(const unsigned int *addr,
+ 			   unsigned long target, int flags)
+ {
+diff --git a/arch/powerpc/lib/feature-fixups.c b/arch/powerpc/lib/feature-fixups.c
+index 3af014684872..7bdfc19a491d 100644
+--- a/arch/powerpc/lib/feature-fixups.c
++++ b/arch/powerpc/lib/feature-fixups.c
+@@ -21,7 +21,7 @@
+ #include <asm/page.h>
+ #include <asm/sections.h>
+ #include <asm/setup.h>
+-
++#include <asm/security_features.h>
+ 
+ struct fixup_entry {
+ 	unsigned long	mask;
+@@ -115,6 +115,120 @@ void do_feature_fixups(unsigned long value, void *fixup_start, void *fixup_end)
+ }
+ 
+ #ifdef CONFIG_PPC_BOOK3S_64
++void do_stf_entry_barrier_fixups(enum stf_barrier_type types)
++{
++	unsigned int instrs[3], *dest;
++	long *start, *end;
++	int i;
++
++	start = PTRRELOC(&__start___stf_entry_barrier_fixup),
++	end = PTRRELOC(&__stop___stf_entry_barrier_fixup);
++
++	instrs[0] = 0x60000000; /* nop */
++	instrs[1] = 0x60000000; /* nop */
++	instrs[2] = 0x60000000; /* nop */
++
++	i = 0;
++	if (types & STF_BARRIER_FALLBACK) {
++		instrs[i++] = 0x7d4802a6; /* mflr r10		*/
++		instrs[i++] = 0x60000000; /* branch patched below */
++		instrs[i++] = 0x7d4803a6; /* mtlr r10		*/
++	} else if (types & STF_BARRIER_EIEIO) {
++		instrs[i++] = 0x7e0006ac; /* eieio + bit 6 hint */
++	} else if (types & STF_BARRIER_SYNC_ORI) {
++		instrs[i++] = 0x7c0004ac; /* hwsync		*/
++		instrs[i++] = 0xe94d0000; /* ld r10,0(r13)	*/
++		instrs[i++] = 0x63ff0000; /* ori 31,31,0 speculation barrier */
++	}
++
++	for (i = 0; start < end; start++, i++) {
++		dest = (void *)start + *start;
++
++		pr_devel("patching dest %lx\n", (unsigned long)dest);
++
++		patch_instruction(dest, instrs[0]);
++
++		if (types & STF_BARRIER_FALLBACK)
++			patch_branch(dest + 1, (unsigned long)&stf_barrier_fallback,
++				     BRANCH_SET_LINK);
++		else
++			patch_instruction(dest + 1, instrs[1]);
++
++		patch_instruction(dest + 2, instrs[2]);
++	}
++
++	printk(KERN_DEBUG "stf-barrier: patched %d entry locations (%s barrier)\n", i,
++		(types == STF_BARRIER_NONE)                  ? "no" :
++		(types == STF_BARRIER_FALLBACK)              ? "fallback" :
++		(types == STF_BARRIER_EIEIO)                 ? "eieio" :
++		(types == (STF_BARRIER_SYNC_ORI))            ? "hwsync"
++		                                           : "unknown");
++}
++
++void do_stf_exit_barrier_fixups(enum stf_barrier_type types)
++{
++	unsigned int instrs[6], *dest;
++	long *start, *end;
++	int i;
++
++	start = PTRRELOC(&__start___stf_exit_barrier_fixup),
++	end = PTRRELOC(&__stop___stf_exit_barrier_fixup);
++
++	instrs[0] = 0x60000000; /* nop */
++	instrs[1] = 0x60000000; /* nop */
++	instrs[2] = 0x60000000; /* nop */
++	instrs[3] = 0x60000000; /* nop */
++	instrs[4] = 0x60000000; /* nop */
++	instrs[5] = 0x60000000; /* nop */
++
++	i = 0;
++	if (types & STF_BARRIER_FALLBACK || types & STF_BARRIER_SYNC_ORI) {
++		if (cpu_has_feature(CPU_FTR_HVMODE)) {
++			instrs[i++] = 0x7db14ba6; /* mtspr 0x131, r13 (HSPRG1) */
++			instrs[i++] = 0x7db04aa6; /* mfspr r13, 0x130 (HSPRG0) */
++		} else {
++			instrs[i++] = 0x7db243a6; /* mtsprg 2,r13	*/
++			instrs[i++] = 0x7db142a6; /* mfsprg r13,1    */
++	        }
++		instrs[i++] = 0x7c0004ac; /* hwsync		*/
++		instrs[i++] = 0xe9ad0000; /* ld r13,0(r13)	*/
++		instrs[i++] = 0x63ff0000; /* ori 31,31,0 speculation barrier */
++		if (cpu_has_feature(CPU_FTR_HVMODE)) {
++			instrs[i++] = 0x7db14aa6; /* mfspr r13, 0x131 (HSPRG1) */
++		} else {
++			instrs[i++] = 0x7db242a6; /* mfsprg r13,2 */
++		}
++	} else if (types & STF_BARRIER_EIEIO) {
++		instrs[i++] = 0x7e0006ac; /* eieio + bit 6 hint */
++	}
++
++	for (i = 0; start < end; start++, i++) {
++		dest = (void *)start + *start;
++
++		pr_devel("patching dest %lx\n", (unsigned long)dest);
++
++		patch_instruction(dest, instrs[0]);
++		patch_instruction(dest + 1, instrs[1]);
++		patch_instruction(dest + 2, instrs[2]);
++		patch_instruction(dest + 3, instrs[3]);
++		patch_instruction(dest + 4, instrs[4]);
++		patch_instruction(dest + 5, instrs[5]);
++	}
++	printk(KERN_DEBUG "stf-barrier: patched %d exit locations (%s barrier)\n", i,
++		(types == STF_BARRIER_NONE)                  ? "no" :
++		(types == STF_BARRIER_FALLBACK)              ? "fallback" :
++		(types == STF_BARRIER_EIEIO)                 ? "eieio" :
++		(types == (STF_BARRIER_SYNC_ORI))            ? "hwsync"
++		                                           : "unknown");
++}
++
++
++void do_stf_barrier_fixups(enum stf_barrier_type types)
++{
++	do_stf_entry_barrier_fixups(types);
++	do_stf_exit_barrier_fixups(types);
++}
++
+ void do_rfi_flush_fixups(enum l1d_flush_type types)
+ {
+ 	unsigned int instrs[3], *dest;
+@@ -151,10 +265,110 @@ void do_rfi_flush_fixups(enum l1d_flush_type types)
+ 		patch_instruction(dest + 2, instrs[2]);
+ 	}
+ 
+-	printk(KERN_DEBUG "rfi-flush: patched %d locations\n", i);
++	printk(KERN_DEBUG "rfi-flush: patched %d locations (%s flush)\n", i,
++		(types == L1D_FLUSH_NONE)       ? "no" :
++		(types == L1D_FLUSH_FALLBACK)   ? "fallback displacement" :
++		(types &  L1D_FLUSH_ORI)        ? (types & L1D_FLUSH_MTTRIG)
++							? "ori+mttrig type"
++							: "ori type" :
++		(types &  L1D_FLUSH_MTTRIG)     ? "mttrig type"
++						: "unknown");
++}
++
++void do_barrier_nospec_fixups_range(bool enable, void *fixup_start, void *fixup_end)
++{
++	unsigned int instr, *dest;
++	long *start, *end;
++	int i;
++
++	start = fixup_start;
++	end = fixup_end;
++
++	instr = 0x60000000; /* nop */
++
++	if (enable) {
++		pr_info("barrier-nospec: using ORI speculation barrier\n");
++		instr = 0x63ff0000; /* ori 31,31,0 speculation barrier */
++	}
++
++	for (i = 0; start < end; start++, i++) {
++		dest = (void *)start + *start;
++
++		pr_devel("patching dest %lx\n", (unsigned long)dest);
++		patch_instruction(dest, instr);
++	}
++
++	printk(KERN_DEBUG "barrier-nospec: patched %d locations\n", i);
+ }
++
+ #endif /* CONFIG_PPC_BOOK3S_64 */
+ 
++#ifdef CONFIG_PPC_BARRIER_NOSPEC
++void do_barrier_nospec_fixups(bool enable)
++{
++	void *start, *end;
++
++	start = PTRRELOC(&__start___barrier_nospec_fixup),
++	end = PTRRELOC(&__stop___barrier_nospec_fixup);
++
++	do_barrier_nospec_fixups_range(enable, start, end);
++}
++#endif /* CONFIG_PPC_BARRIER_NOSPEC */
++
++#ifdef CONFIG_PPC_FSL_BOOK3E
++void do_barrier_nospec_fixups_range(bool enable, void *fixup_start, void *fixup_end)
++{
++	unsigned int instr[2], *dest;
++	long *start, *end;
++	int i;
++
++	start = fixup_start;
++	end = fixup_end;
++
++	instr[0] = PPC_INST_NOP;
++	instr[1] = PPC_INST_NOP;
++
++	if (enable) {
++		pr_info("barrier-nospec: using isync; sync as speculation barrier\n");
++		instr[0] = PPC_INST_ISYNC;
++		instr[1] = PPC_INST_SYNC;
++	}
++
++	for (i = 0; start < end; start++, i++) {
++		dest = (void *)start + *start;
++
++		pr_devel("patching dest %lx\n", (unsigned long)dest);
++		patch_instruction(dest, instr[0]);
++		patch_instruction(dest + 1, instr[1]);
++	}
++
++	printk(KERN_DEBUG "barrier-nospec: patched %d locations\n", i);
++}
++
++static void patch_btb_flush_section(long *curr)
++{
++	unsigned int *start, *end;
++
++	start = (void *)curr + *curr;
++	end = (void *)curr + *(curr + 1);
++	for (; start < end; start++) {
++		pr_devel("patching dest %lx\n", (unsigned long)start);
++		patch_instruction(start, PPC_INST_NOP);
++	}
++}
++
++void do_btb_flush_fixups(void)
++{
++	long *start, *end;
++
++	start = PTRRELOC(&__start__btb_flush_fixup);
++	end = PTRRELOC(&__stop__btb_flush_fixup);
++
++	for (; start < end; start += 2)
++		patch_btb_flush_section(start);
++}
++#endif /* CONFIG_PPC_FSL_BOOK3E */
++
+ void do_lwsync_fixups(unsigned long value, void *fixup_start, void *fixup_end)
+ {
+ 	long *start, *end;
+diff --git a/arch/powerpc/mm/mem.c b/arch/powerpc/mm/mem.c
+index 22d94c3e6fc4..1efe5ca5c3bc 100644
+--- a/arch/powerpc/mm/mem.c
++++ b/arch/powerpc/mm/mem.c
+@@ -62,6 +62,7 @@
+ #endif
+ 
+ unsigned long long memory_limit;
++bool init_mem_is_free;
+ 
+ #ifdef CONFIG_HIGHMEM
+ pte_t *kmap_pte;
+@@ -381,6 +382,7 @@ void __init mem_init(void)
+ void free_initmem(void)
+ {
+ 	ppc_md.progress = ppc_printk_progress;
++	init_mem_is_free = true;
+ 	free_initmem_default(POISON_FREE_INITMEM);
+ }
+ 
+diff --git a/arch/powerpc/mm/tlb_low_64e.S b/arch/powerpc/mm/tlb_low_64e.S
+index 29d6987c37ba..5486d56da289 100644
+--- a/arch/powerpc/mm/tlb_low_64e.S
++++ b/arch/powerpc/mm/tlb_low_64e.S
+@@ -69,6 +69,13 @@ END_FTR_SECTION_IFSET(CPU_FTR_EMB_HV)
+ 	std	r15,EX_TLB_R15(r12)
+ 	std	r10,EX_TLB_CR(r12)
+ #ifdef CONFIG_PPC_FSL_BOOK3E
++START_BTB_FLUSH_SECTION
++	mfspr r11, SPRN_SRR1
++	andi. r10,r11,MSR_PR
++	beq 1f
++	BTB_FLUSH(r10)
++1:
++END_BTB_FLUSH_SECTION
+ 	std	r7,EX_TLB_R7(r12)
+ #endif
+ 	TLB_MISS_PROLOG_STATS
+diff --git a/arch/powerpc/platforms/powernv/setup.c b/arch/powerpc/platforms/powernv/setup.c
+index c57afc619b20..e14b52c7ebd8 100644
+--- a/arch/powerpc/platforms/powernv/setup.c
++++ b/arch/powerpc/platforms/powernv/setup.c
+@@ -37,53 +37,99 @@
+ #include <asm/smp.h>
+ #include <asm/tm.h>
+ #include <asm/setup.h>
++#include <asm/security_features.h>
+ 
+ #include "powernv.h"
+ 
++
++static bool fw_feature_is(const char *state, const char *name,
++			  struct device_node *fw_features)
++{
++	struct device_node *np;
++	bool rc = false;
++
++	np = of_get_child_by_name(fw_features, name);
++	if (np) {
++		rc = of_property_read_bool(np, state);
++		of_node_put(np);
++	}
++
++	return rc;
++}
++
++static void init_fw_feat_flags(struct device_node *np)
++{
++	if (fw_feature_is("enabled", "inst-spec-barrier-ori31,31,0", np))
++		security_ftr_set(SEC_FTR_SPEC_BAR_ORI31);
++
++	if (fw_feature_is("enabled", "fw-bcctrl-serialized", np))
++		security_ftr_set(SEC_FTR_BCCTRL_SERIALISED);
++
++	if (fw_feature_is("enabled", "inst-l1d-flush-ori30,30,0", np))
++		security_ftr_set(SEC_FTR_L1D_FLUSH_ORI30);
++
++	if (fw_feature_is("enabled", "inst-l1d-flush-trig2", np))
++		security_ftr_set(SEC_FTR_L1D_FLUSH_TRIG2);
++
++	if (fw_feature_is("enabled", "fw-l1d-thread-split", np))
++		security_ftr_set(SEC_FTR_L1D_THREAD_PRIV);
++
++	if (fw_feature_is("enabled", "fw-count-cache-disabled", np))
++		security_ftr_set(SEC_FTR_COUNT_CACHE_DISABLED);
++
++	if (fw_feature_is("enabled", "fw-count-cache-flush-bcctr2,0,0", np))
++		security_ftr_set(SEC_FTR_BCCTR_FLUSH_ASSIST);
++
++	if (fw_feature_is("enabled", "needs-count-cache-flush-on-context-switch", np))
++		security_ftr_set(SEC_FTR_FLUSH_COUNT_CACHE);
++
++	/*
++	 * The features below are enabled by default, so we instead look to see
++	 * if firmware has *disabled* them, and clear them if so.
++	 */
++	if (fw_feature_is("disabled", "speculation-policy-favor-security", np))
++		security_ftr_clear(SEC_FTR_FAVOUR_SECURITY);
++
++	if (fw_feature_is("disabled", "needs-l1d-flush-msr-pr-0-to-1", np))
++		security_ftr_clear(SEC_FTR_L1D_FLUSH_PR);
++
++	if (fw_feature_is("disabled", "needs-l1d-flush-msr-hv-1-to-0", np))
++		security_ftr_clear(SEC_FTR_L1D_FLUSH_HV);
++
++	if (fw_feature_is("disabled", "needs-spec-barrier-for-bound-checks", np))
++		security_ftr_clear(SEC_FTR_BNDS_CHK_SPEC_BAR);
++}
++
+ static void pnv_setup_rfi_flush(void)
+ {
+ 	struct device_node *np, *fw_features;
+ 	enum l1d_flush_type type;
+-	int enable;
++	bool enable;
+ 
+ 	/* Default to fallback in case fw-features are not available */
+ 	type = L1D_FLUSH_FALLBACK;
+-	enable = 1;
+ 
+ 	np = of_find_node_by_name(NULL, "ibm,opal");
+ 	fw_features = of_get_child_by_name(np, "fw-features");
+ 	of_node_put(np);
+ 
+ 	if (fw_features) {
+-		np = of_get_child_by_name(fw_features, "inst-l1d-flush-trig2");
+-		if (np && of_property_read_bool(np, "enabled"))
+-			type = L1D_FLUSH_MTTRIG;
++		init_fw_feat_flags(fw_features);
++		of_node_put(fw_features);
+ 
+-		of_node_put(np);
++		if (security_ftr_enabled(SEC_FTR_L1D_FLUSH_TRIG2))
++			type = L1D_FLUSH_MTTRIG;
+ 
+-		np = of_get_child_by_name(fw_features, "inst-l1d-flush-ori30,30,0");
+-		if (np && of_property_read_bool(np, "enabled"))
++		if (security_ftr_enabled(SEC_FTR_L1D_FLUSH_ORI30))
+ 			type = L1D_FLUSH_ORI;
+-
+-		of_node_put(np);
+-
+-		/* Enable unless firmware says NOT to */
+-		enable = 2;
+-		np = of_get_child_by_name(fw_features, "needs-l1d-flush-msr-hv-1-to-0");
+-		if (np && of_property_read_bool(np, "disabled"))
+-			enable--;
+-
+-		of_node_put(np);
+-
+-		np = of_get_child_by_name(fw_features, "needs-l1d-flush-msr-pr-0-to-1");
+-		if (np && of_property_read_bool(np, "disabled"))
+-			enable--;
+-
+-		of_node_put(np);
+-		of_node_put(fw_features);
+ 	}
+ 
+-	setup_rfi_flush(type, enable > 0);
++	enable = security_ftr_enabled(SEC_FTR_FAVOUR_SECURITY) && \
++		 (security_ftr_enabled(SEC_FTR_L1D_FLUSH_PR)   || \
++		  security_ftr_enabled(SEC_FTR_L1D_FLUSH_HV));
++
++	setup_rfi_flush(type, enable);
++	setup_count_cache_flush();
+ }
+ 
+ static void __init pnv_setup_arch(void)
+@@ -91,6 +137,7 @@ static void __init pnv_setup_arch(void)
+ 	set_arch_panic_timeout(10, ARCH_PANIC_TIMEOUT);
+ 
+ 	pnv_setup_rfi_flush();
++	setup_stf_barrier();
+ 
+ 	/* Initialize SMP */
+ 	pnv_smp_init();
+diff --git a/arch/powerpc/platforms/pseries/mobility.c b/arch/powerpc/platforms/pseries/mobility.c
+index 8dd0c8edefd6..c773396d0969 100644
+--- a/arch/powerpc/platforms/pseries/mobility.c
++++ b/arch/powerpc/platforms/pseries/mobility.c
+@@ -314,6 +314,9 @@ void post_mobility_fixup(void)
+ 		printk(KERN_ERR "Post-mobility device tree update "
+ 			"failed: %d\n", rc);
+ 
++	/* Possibly switch to a new RFI flush type */
++	pseries_setup_rfi_flush();
++
+ 	return;
+ }
+ 
+diff --git a/arch/powerpc/platforms/pseries/pseries.h b/arch/powerpc/platforms/pseries/pseries.h
+index 8411c27293e4..e7d80797384d 100644
+--- a/arch/powerpc/platforms/pseries/pseries.h
++++ b/arch/powerpc/platforms/pseries/pseries.h
+@@ -81,4 +81,6 @@ extern struct pci_controller_ops pseries_pci_controller_ops;
+ 
+ unsigned long pseries_memory_block_size(void);
+ 
++void pseries_setup_rfi_flush(void);
++
+ #endif /* _PSERIES_PSERIES_H */
+diff --git a/arch/powerpc/platforms/pseries/setup.c b/arch/powerpc/platforms/pseries/setup.c
+index dd2545fc9947..9cc976ff7fec 100644
+--- a/arch/powerpc/platforms/pseries/setup.c
++++ b/arch/powerpc/platforms/pseries/setup.c
+@@ -67,6 +67,7 @@
+ #include <asm/eeh.h>
+ #include <asm/reg.h>
+ #include <asm/plpar_wrappers.h>
++#include <asm/security_features.h>
+ 
+ #include "pseries.h"
+ 
+@@ -499,37 +500,87 @@ static void __init find_and_init_phbs(void)
+ 	of_pci_check_probe_only();
+ }
+ 
+-static void pseries_setup_rfi_flush(void)
++static void init_cpu_char_feature_flags(struct h_cpu_char_result *result)
++{
++	/*
++	 * The features below are disabled by default, so we instead look to see
++	 * if firmware has *enabled* them, and set them if so.
++	 */
++	if (result->character & H_CPU_CHAR_SPEC_BAR_ORI31)
++		security_ftr_set(SEC_FTR_SPEC_BAR_ORI31);
++
++	if (result->character & H_CPU_CHAR_BCCTRL_SERIALISED)
++		security_ftr_set(SEC_FTR_BCCTRL_SERIALISED);
++
++	if (result->character & H_CPU_CHAR_L1D_FLUSH_ORI30)
++		security_ftr_set(SEC_FTR_L1D_FLUSH_ORI30);
++
++	if (result->character & H_CPU_CHAR_L1D_FLUSH_TRIG2)
++		security_ftr_set(SEC_FTR_L1D_FLUSH_TRIG2);
++
++	if (result->character & H_CPU_CHAR_L1D_THREAD_PRIV)
++		security_ftr_set(SEC_FTR_L1D_THREAD_PRIV);
++
++	if (result->character & H_CPU_CHAR_COUNT_CACHE_DISABLED)
++		security_ftr_set(SEC_FTR_COUNT_CACHE_DISABLED);
++
++	if (result->character & H_CPU_CHAR_BCCTR_FLUSH_ASSIST)
++		security_ftr_set(SEC_FTR_BCCTR_FLUSH_ASSIST);
++
++	if (result->behaviour & H_CPU_BEHAV_FLUSH_COUNT_CACHE)
++		security_ftr_set(SEC_FTR_FLUSH_COUNT_CACHE);
++
++	/*
++	 * The features below are enabled by default, so we instead look to see
++	 * if firmware has *disabled* them, and clear them if so.
++	 */
++	if (!(result->behaviour & H_CPU_BEHAV_FAVOUR_SECURITY))
++		security_ftr_clear(SEC_FTR_FAVOUR_SECURITY);
++
++	if (!(result->behaviour & H_CPU_BEHAV_L1D_FLUSH_PR))
++		security_ftr_clear(SEC_FTR_L1D_FLUSH_PR);
++
++	if (!(result->behaviour & H_CPU_BEHAV_BNDS_CHK_SPEC_BAR))
++		security_ftr_clear(SEC_FTR_BNDS_CHK_SPEC_BAR);
++}
++
++void pseries_setup_rfi_flush(void)
+ {
+ 	struct h_cpu_char_result result;
+ 	enum l1d_flush_type types;
+ 	bool enable;
+ 	long rc;
+ 
+-	/* Enable by default */
+-	enable = true;
++	/*
++	 * Set features to the defaults assumed by init_cpu_char_feature_flags()
++	 * so it can set/clear again any features that might have changed after
++	 * migration, and in case the hypercall fails and it is not even called.
++	 */
++	powerpc_security_features = SEC_FTR_DEFAULT;
+ 
+ 	rc = plpar_get_cpu_characteristics(&result);
+-	if (rc == H_SUCCESS) {
+-		types = L1D_FLUSH_NONE;
++	if (rc == H_SUCCESS)
++		init_cpu_char_feature_flags(&result);
+ 
+-		if (result.character & H_CPU_CHAR_L1D_FLUSH_TRIG2)
+-			types |= L1D_FLUSH_MTTRIG;
+-		if (result.character & H_CPU_CHAR_L1D_FLUSH_ORI30)
+-			types |= L1D_FLUSH_ORI;
++	/*
++	 * We're the guest so this doesn't apply to us, clear it to simplify
++	 * handling of it elsewhere.
++	 */
++	security_ftr_clear(SEC_FTR_L1D_FLUSH_HV);
+ 
+-		/* Use fallback if nothing set in hcall */
+-		if (types == L1D_FLUSH_NONE)
+-			types = L1D_FLUSH_FALLBACK;
++	types = L1D_FLUSH_FALLBACK;
+ 
+-		if (!(result.behaviour & H_CPU_BEHAV_L1D_FLUSH_PR))
+-			enable = false;
+-	} else {
+-		/* Default to fallback if case hcall is not available */
+-		types = L1D_FLUSH_FALLBACK;
+-	}
++	if (security_ftr_enabled(SEC_FTR_L1D_FLUSH_TRIG2))
++		types |= L1D_FLUSH_MTTRIG;
++
++	if (security_ftr_enabled(SEC_FTR_L1D_FLUSH_ORI30))
++		types |= L1D_FLUSH_ORI;
++
++	enable = security_ftr_enabled(SEC_FTR_FAVOUR_SECURITY) && \
++		 security_ftr_enabled(SEC_FTR_L1D_FLUSH_PR);
+ 
+ 	setup_rfi_flush(types, enable);
++	setup_count_cache_flush();
+ }
+ 
+ static void __init pSeries_setup_arch(void)
+@@ -549,6 +600,7 @@ static void __init pSeries_setup_arch(void)
+ 	fwnmi_init();
+ 
+ 	pseries_setup_rfi_flush();
++	setup_stf_barrier();
+ 
+ 	/* By default, only probe PCI (can be overridden by rtas_pci) */
+ 	pci_add_flags(PCI_PROBE_ONLY);
+diff --git a/arch/powerpc/xmon/xmon.c b/arch/powerpc/xmon/xmon.c
+index 786bf01691c9..83619ebede93 100644
+--- a/arch/powerpc/xmon/xmon.c
++++ b/arch/powerpc/xmon/xmon.c
+@@ -2144,6 +2144,8 @@ static void dump_one_paca(int cpu)
+ 	DUMP(p, slb_cache_ptr, "x");
+ 	for (i = 0; i < SLB_CACHE_ENTRIES; i++)
+ 		printf(" slb_cache[%d]:        = 0x%016lx\n", i, p->slb_cache[i]);
++
++	DUMP(p, rfi_flush_fallback_area, "px");
+ #endif
+ 	DUMP(p, dscr_default, "llx");
+ #ifdef CONFIG_PPC_BOOK3E
 diff --git a/arch/x86/Kconfig b/arch/x86/Kconfig
 index 4598d087dec2..4d1262cf630c 100644
 --- a/arch/x86/Kconfig
@@ -983,6 +3257,2518 @@ index 071582a3b5c0..57be07f27f37 100644
  }
  
  #define SYSCALL_EXIT_WORK_FLAGS				\
+diff --git a/arch/x86/include/asm/cpufeatures.h b/arch/x86/include/asm/cpufeatures.h
+index a5fa3195a230..d9f7d1770e98 100644
+--- a/arch/x86/include/asm/cpufeatures.h
++++ b/arch/x86/include/asm/cpufeatures.h
+@@ -214,6 +214,7 @@
+ #define X86_FEATURE_STIBP	( 7*32+27) /* Single Thread Indirect Branch Predictors */
+ #define X86_FEATURE_ZEN		( 7*32+28) /* "" CPU is AMD family 0x17 (Zen) */
+ #define X86_FEATURE_L1TF_PTEINV	( 7*32+29) /* "" L1TF workaround PTE inversion */
++#define X86_FEATURE_IBRS_ENHANCED	( 7*32+30) /* Enhanced IBRS */
+ 
+ /* Virtualization flags: Linux defined, word 8 */
+ #define X86_FEATURE_TPR_SHADOW  ( 8*32+ 0) /* Intel TPR Shadow */
+@@ -265,10 +266,12 @@
+ 
+ /* AMD-defined CPU features, CPUID level 0x80000008 (ebx), word 13 */
+ #define X86_FEATURE_CLZERO	(13*32+0) /* CLZERO instruction */
+-#define X86_FEATURE_AMD_IBPB	(13*32+12) /* Indirect Branch Prediction Barrier */
+-#define X86_FEATURE_AMD_IBRS	(13*32+14) /* Indirect Branch Restricted Speculation */
+-#define X86_FEATURE_AMD_STIBP	(13*32+15) /* Single Thread Indirect Branch Predictors */
++#define X86_FEATURE_AMD_IBPB	(13*32+12) /* "" Indirect Branch Prediction Barrier */
++#define X86_FEATURE_AMD_IBRS	(13*32+14) /* "" Indirect Branch Restricted Speculation */
++#define X86_FEATURE_AMD_STIBP	(13*32+15) /* "" Single Thread Indirect Branch Predictors */
++#define X86_FEATURE_AMD_SSBD	(13*32+24) /* "" Speculative Store Bypass Disable */
+ #define X86_FEATURE_VIRT_SSBD	(13*32+25) /* Virtualized Speculative Store Bypass Disable */
++#define X86_FEATURE_AMD_SSB_NO	(13*32+26) /* "" Speculative Store Bypass is fixed in hardware. */
+ 
+ /* Thermal and Power Management Leaf, CPUID level 0x00000006 (eax), word 14 */
+ #define X86_FEATURE_DTHERM	(14*32+ 0) /* Digital Thermal Sensor */
+@@ -307,6 +310,7 @@
+ /* Intel-defined CPU features, CPUID level 0x00000007:0 (EDX), word 18 */
+ #define X86_FEATURE_AVX512_4VNNIW	(18*32+ 2) /* AVX-512 Neural Network Instructions */
+ #define X86_FEATURE_AVX512_4FMAPS	(18*32+ 3) /* AVX-512 Multiply Accumulation Single precision */
++#define X86_FEATURE_MD_CLEAR		(18*32+10) /* VERW clears CPU buffers */
+ #define X86_FEATURE_SPEC_CTRL		(18*32+26) /* "" Speculation Control (IBRS + IBPB) */
+ #define X86_FEATURE_INTEL_STIBP		(18*32+27) /* "" Single Thread Indirect Branch Predictors */
+ #define X86_FEATURE_FLUSH_L1D		(18*32+28) /* Flush L1D cache */
+@@ -332,5 +336,7 @@
+ #define X86_BUG_SPECTRE_V2	X86_BUG(16) /* CPU is affected by Spectre variant 2 attack with indirect branches */
+ #define X86_BUG_SPEC_STORE_BYPASS X86_BUG(17) /* CPU is affected by speculative store bypass attack */
+ #define X86_BUG_L1TF		X86_BUG(18) /* CPU is affected by L1 Terminal Fault */
++#define X86_BUG_MDS		X86_BUG(19) /* CPU is affected by Microarchitectural data sampling */
++#define X86_BUG_MSBDS_ONLY	X86_BUG(20) /* CPU is only affected by the  MSDBS variant of BUG_MDS */
+ 
+ #endif /* _ASM_X86_CPUFEATURES_H */
+diff --git a/arch/x86/include/asm/intel-family.h b/arch/x86/include/asm/intel-family.h
+index e13ff5a14633..6801f958e254 100644
+--- a/arch/x86/include/asm/intel-family.h
++++ b/arch/x86/include/asm/intel-family.h
+@@ -50,19 +50,23 @@
+ 
+ /* "Small Core" Processors (Atom) */
+ 
+-#define INTEL_FAM6_ATOM_PINEVIEW	0x1C
+-#define INTEL_FAM6_ATOM_LINCROFT	0x26
+-#define INTEL_FAM6_ATOM_PENWELL		0x27
+-#define INTEL_FAM6_ATOM_CLOVERVIEW	0x35
+-#define INTEL_FAM6_ATOM_CEDARVIEW	0x36
+-#define INTEL_FAM6_ATOM_SILVERMONT1	0x37 /* BayTrail/BYT / Valleyview */
+-#define INTEL_FAM6_ATOM_SILVERMONT2	0x4D /* Avaton/Rangely */
+-#define INTEL_FAM6_ATOM_AIRMONT		0x4C /* CherryTrail / Braswell */
+-#define INTEL_FAM6_ATOM_MERRIFIELD	0x4A /* Tangier */
+-#define INTEL_FAM6_ATOM_MOOREFIELD	0x5A /* Annidale */
+-#define INTEL_FAM6_ATOM_GOLDMONT	0x5C
+-#define INTEL_FAM6_ATOM_DENVERTON	0x5F /* Goldmont Microserver */
+-#define INTEL_FAM6_ATOM_GEMINI_LAKE	0x7A
++#define INTEL_FAM6_ATOM_BONNELL		0x1C /* Diamondville, Pineview */
++#define INTEL_FAM6_ATOM_BONNELL_MID	0x26 /* Silverthorne, Lincroft */
++
++#define INTEL_FAM6_ATOM_SALTWELL	0x36 /* Cedarview */
++#define INTEL_FAM6_ATOM_SALTWELL_MID	0x27 /* Penwell */
++#define INTEL_FAM6_ATOM_SALTWELL_TABLET	0x35 /* Cloverview */
++
++#define INTEL_FAM6_ATOM_SILVERMONT	0x37 /* Bay Trail, Valleyview */
++#define INTEL_FAM6_ATOM_SILVERMONT_X	0x4D /* Avaton, Rangely */
++#define INTEL_FAM6_ATOM_SILVERMONT_MID	0x4A /* Merriefield */
++
++#define INTEL_FAM6_ATOM_AIRMONT		0x4C /* Cherry Trail, Braswell */
++#define INTEL_FAM6_ATOM_AIRMONT_MID	0x5A /* Moorefield */
++
++#define INTEL_FAM6_ATOM_GOLDMONT	0x5C /* Apollo Lake */
++#define INTEL_FAM6_ATOM_GOLDMONT_X	0x5F /* Denverton */
++#define INTEL_FAM6_ATOM_GOLDMONT_PLUS	0x7A /* Gemini Lake */
+ 
+ /* Xeon Phi */
+ 
+diff --git a/arch/x86/include/asm/irqflags.h b/arch/x86/include/asm/irqflags.h
+index 8afbdcd3032b..46d8b99a0ff1 100644
+--- a/arch/x86/include/asm/irqflags.h
++++ b/arch/x86/include/asm/irqflags.h
+@@ -4,6 +4,9 @@
+ #include <asm/processor-flags.h>
+ 
+ #ifndef __ASSEMBLY__
++
++#include <asm/nospec-branch.h>
++
+ /*
+  * Interrupt control:
+  */
+@@ -49,11 +52,13 @@ static inline void native_irq_enable(void)
+ 
+ static inline void native_safe_halt(void)
+ {
++	mds_idle_clear_cpu_buffers();
+ 	asm volatile("sti; hlt": : :"memory");
+ }
+ 
+ static inline void native_halt(void)
+ {
++	mds_idle_clear_cpu_buffers();
+ 	asm volatile("hlt": : :"memory");
+ }
+ 
+diff --git a/arch/x86/include/asm/microcode_intel.h b/arch/x86/include/asm/microcode_intel.h
+index 8559b0102ea1..90343ba50485 100644
+--- a/arch/x86/include/asm/microcode_intel.h
++++ b/arch/x86/include/asm/microcode_intel.h
+@@ -53,6 +53,21 @@ struct extended_sigtable {
+ 
+ #define exttable_size(et) ((et)->count * EXT_SIGNATURE_SIZE + EXT_HEADER_SIZE)
+ 
++static inline u32 intel_get_microcode_revision(void)
++{
++	u32 rev, dummy;
++
++	native_wrmsrl(MSR_IA32_UCODE_REV, 0);
++
++	/* As documented in the SDM: Do a CPUID 1 here */
++	sync_core();
++
++	/* get the current revision from MSR 0x8B */
++	native_rdmsr(MSR_IA32_UCODE_REV, dummy, rev);
++
++	return rev;
++}
++
+ extern int has_newer_microcode(void *mc, unsigned int csig, int cpf, int rev);
+ extern int microcode_sanity_check(void *mc, int print_err);
+ extern int find_matching_signature(void *mc, unsigned int csig, int cpf);
+diff --git a/arch/x86/include/asm/msr-index.h b/arch/x86/include/asm/msr-index.h
+index caa00191e565..d4f5b8209393 100644
+--- a/arch/x86/include/asm/msr-index.h
++++ b/arch/x86/include/asm/msr-index.h
+@@ -1,6 +1,8 @@
+ #ifndef _ASM_X86_MSR_INDEX_H
+ #define _ASM_X86_MSR_INDEX_H
+ 
++#include <linux/bits.h>
++
+ /* CPU model specific register (MSR) numbers */
+ 
+ /* x86-64 specific MSRs */
+@@ -33,13 +35,14 @@
+ 
+ /* Intel MSRs. Some also available on other CPUs */
+ #define MSR_IA32_SPEC_CTRL		0x00000048 /* Speculation Control */
+-#define SPEC_CTRL_IBRS			(1 << 0)   /* Indirect Branch Restricted Speculation */
+-#define SPEC_CTRL_STIBP			(1 << 1)   /* Single Thread Indirect Branch Predictors */
++#define SPEC_CTRL_IBRS			BIT(0)	   /* Indirect Branch Restricted Speculation */
++#define SPEC_CTRL_STIBP_SHIFT		1	   /* Single Thread Indirect Branch Predictor (STIBP) bit */
++#define SPEC_CTRL_STIBP			BIT(SPEC_CTRL_STIBP_SHIFT)	/* STIBP mask */
+ #define SPEC_CTRL_SSBD_SHIFT		2	   /* Speculative Store Bypass Disable bit */
+-#define SPEC_CTRL_SSBD			(1 << SPEC_CTRL_SSBD_SHIFT)   /* Speculative Store Bypass Disable */
++#define SPEC_CTRL_SSBD			BIT(SPEC_CTRL_SSBD_SHIFT)	/* Speculative Store Bypass Disable */
+ 
+ #define MSR_IA32_PRED_CMD		0x00000049 /* Prediction Command */
+-#define PRED_CMD_IBPB			(1 << 0)   /* Indirect Branch Prediction Barrier */
++#define PRED_CMD_IBPB			BIT(0)	   /* Indirect Branch Prediction Barrier */
+ 
+ #define MSR_IA32_PERFCTR0		0x000000c1
+ #define MSR_IA32_PERFCTR1		0x000000c2
+@@ -56,13 +59,18 @@
+ #define MSR_MTRRcap			0x000000fe
+ 
+ #define MSR_IA32_ARCH_CAPABILITIES	0x0000010a
+-#define ARCH_CAP_RDCL_NO		(1 << 0)   /* Not susceptible to Meltdown */
+-#define ARCH_CAP_IBRS_ALL		(1 << 1)   /* Enhanced IBRS support */
+-#define ARCH_CAP_SSB_NO			(1 << 4)   /*
+-						    * Not susceptible to Speculative Store Bypass
+-						    * attack, so no Speculative Store Bypass
+-						    * control required.
+-						    */
++#define ARCH_CAP_RDCL_NO		BIT(0)	/* Not susceptible to Meltdown */
++#define ARCH_CAP_IBRS_ALL		BIT(1)	/* Enhanced IBRS support */
++#define ARCH_CAP_SSB_NO			BIT(4)	/*
++						 * Not susceptible to Speculative Store Bypass
++						 * attack, so no Speculative Store Bypass
++						 * control required.
++						 */
++#define ARCH_CAP_MDS_NO			BIT(5)   /*
++						  * Not susceptible to
++						  * Microarchitectural Data
++						  * Sampling (MDS) vulnerabilities.
++						  */
+ 
+ #define MSR_IA32_BBL_CR_CTL		0x00000119
+ #define MSR_IA32_BBL_CR_CTL3		0x0000011e
+diff --git a/arch/x86/include/asm/mwait.h b/arch/x86/include/asm/mwait.h
+index 0deeb2d26df7..b98dbdaee8ac 100644
+--- a/arch/x86/include/asm/mwait.h
++++ b/arch/x86/include/asm/mwait.h
+@@ -4,6 +4,7 @@
+ #include <linux/sched.h>
+ 
+ #include <asm/cpufeature.h>
++#include <asm/nospec-branch.h>
+ 
+ #define MWAIT_SUBSTATE_MASK		0xf
+ #define MWAIT_CSTATE_MASK		0xf
+@@ -38,6 +39,8 @@ static inline void __monitorx(const void *eax, unsigned long ecx,
+ 
+ static inline void __mwait(unsigned long eax, unsigned long ecx)
+ {
++	mds_idle_clear_cpu_buffers();
++
+ 	/* "mwait %eax, %ecx;" */
+ 	asm volatile(".byte 0x0f, 0x01, 0xc9;"
+ 		     :: "a" (eax), "c" (ecx));
+@@ -72,6 +75,8 @@ static inline void __mwait(unsigned long eax, unsigned long ecx)
+ static inline void __mwaitx(unsigned long eax, unsigned long ebx,
+ 			    unsigned long ecx)
+ {
++	/* No MDS buffer clear as this is AMD/HYGON only */
++
+ 	/* "mwaitx %eax, %ebx, %ecx;" */
+ 	asm volatile(".byte 0x0f, 0x01, 0xfb;"
+ 		     :: "a" (eax), "b" (ebx), "c" (ecx));
+@@ -79,6 +84,8 @@ static inline void __mwaitx(unsigned long eax, unsigned long ebx,
+ 
+ static inline void __sti_mwait(unsigned long eax, unsigned long ecx)
+ {
++	mds_idle_clear_cpu_buffers();
++
+ 	trace_hardirqs_on();
+ 	/* "mwait %eax, %ecx;" */
+ 	asm volatile("sti; .byte 0x0f, 0x01, 0xc9;"
+diff --git a/arch/x86/include/asm/nospec-branch.h b/arch/x86/include/asm/nospec-branch.h
+index b4c74c24c890..e58c078f3d96 100644
+--- a/arch/x86/include/asm/nospec-branch.h
++++ b/arch/x86/include/asm/nospec-branch.h
+@@ -3,6 +3,8 @@
+ #ifndef _ASM_X86_NOSPEC_BRANCH_H_
+ #define _ASM_X86_NOSPEC_BRANCH_H_
+ 
++#include <linux/static_key.h>
++
+ #include <asm/alternative.h>
+ #include <asm/alternative-asm.h>
+ #include <asm/cpufeatures.h>
+@@ -169,7 +171,15 @@ enum spectre_v2_mitigation {
+ 	SPECTRE_V2_RETPOLINE_MINIMAL_AMD,
+ 	SPECTRE_V2_RETPOLINE_GENERIC,
+ 	SPECTRE_V2_RETPOLINE_AMD,
+-	SPECTRE_V2_IBRS,
++	SPECTRE_V2_IBRS_ENHANCED,
++};
++
++/* The indirect branch speculation control variants */
++enum spectre_v2_user_mitigation {
++	SPECTRE_V2_USER_NONE,
++	SPECTRE_V2_USER_STRICT,
++	SPECTRE_V2_USER_PRCTL,
++	SPECTRE_V2_USER_SECCOMP,
+ };
+ 
+ /* The Speculative Store Bypass disable variants */
+@@ -248,6 +258,60 @@ do {									\
+ 	preempt_enable();						\
+ } while (0)
+ 
++DECLARE_STATIC_KEY_FALSE(switch_to_cond_stibp);
++DECLARE_STATIC_KEY_FALSE(switch_mm_cond_ibpb);
++DECLARE_STATIC_KEY_FALSE(switch_mm_always_ibpb);
++
++DECLARE_STATIC_KEY_FALSE(mds_user_clear);
++DECLARE_STATIC_KEY_FALSE(mds_idle_clear);
++
++#include <asm/segment.h>
++
++/**
++ * mds_clear_cpu_buffers - Mitigation for MDS vulnerability
++ *
++ * This uses the otherwise unused and obsolete VERW instruction in
++ * combination with microcode which triggers a CPU buffer flush when the
++ * instruction is executed.
++ */
++static inline void mds_clear_cpu_buffers(void)
++{
++	static const u16 ds = __KERNEL_DS;
++
++	/*
++	 * Has to be the memory-operand variant because only that
++	 * guarantees the CPU buffer flush functionality according to
++	 * documentation. The register-operand variant does not.
++	 * Works with any segment selector, but a valid writable
++	 * data segment is the fastest variant.
++	 *
++	 * "cc" clobber is required because VERW modifies ZF.
++	 */
++	asm volatile("verw %[ds]" : : [ds] "m" (ds) : "cc");
++}
++
++/**
++ * mds_user_clear_cpu_buffers - Mitigation for MDS vulnerability
++ *
++ * Clear CPU buffers if the corresponding static key is enabled
++ */
++static inline void mds_user_clear_cpu_buffers(void)
++{
++	if (static_branch_likely(&mds_user_clear))
++		mds_clear_cpu_buffers();
++}
++
++/**
++ * mds_idle_clear_cpu_buffers - Mitigation for MDS vulnerability
++ *
++ * Clear CPU buffers if the corresponding static key is enabled
++ */
++static inline void mds_idle_clear_cpu_buffers(void)
++{
++	if (static_branch_likely(&mds_idle_clear))
++		mds_clear_cpu_buffers();
++}
++
+ #endif /* __ASSEMBLY__ */
+ 
+ /*
+diff --git a/arch/x86/include/asm/pgtable_64.h b/arch/x86/include/asm/pgtable_64.h
+index 221a32ed1372..f12e61e2a86b 100644
+--- a/arch/x86/include/asm/pgtable_64.h
++++ b/arch/x86/include/asm/pgtable_64.h
+@@ -44,15 +44,15 @@ struct mm_struct;
+ void set_pte_vaddr_pud(pud_t *pud_page, unsigned long vaddr, pte_t new_pte);
+ 
+ 
+-static inline void native_pte_clear(struct mm_struct *mm, unsigned long addr,
+-				    pte_t *ptep)
++static inline void native_set_pte(pte_t *ptep, pte_t pte)
+ {
+-	*ptep = native_make_pte(0);
++	WRITE_ONCE(*ptep, pte);
+ }
+ 
+-static inline void native_set_pte(pte_t *ptep, pte_t pte)
++static inline void native_pte_clear(struct mm_struct *mm, unsigned long addr,
++				    pte_t *ptep)
+ {
+-	*ptep = pte;
++	native_set_pte(ptep, native_make_pte(0));
+ }
+ 
+ static inline void native_set_pte_atomic(pte_t *ptep, pte_t pte)
+@@ -62,7 +62,7 @@ static inline void native_set_pte_atomic(pte_t *ptep, pte_t pte)
+ 
+ static inline void native_set_pmd(pmd_t *pmdp, pmd_t pmd)
+ {
+-	*pmdp = pmd;
++	WRITE_ONCE(*pmdp, pmd);
+ }
+ 
+ static inline void native_pmd_clear(pmd_t *pmd)
+@@ -98,7 +98,7 @@ static inline pmd_t native_pmdp_get_and_clear(pmd_t *xp)
+ 
+ static inline void native_set_pud(pud_t *pudp, pud_t pud)
+ {
+-	*pudp = pud;
++	WRITE_ONCE(*pudp, pud);
+ }
+ 
+ static inline void native_pud_clear(pud_t *pud)
+@@ -131,7 +131,7 @@ static inline pgd_t *native_get_shadow_pgd(pgd_t *pgdp)
+ 
+ static inline void native_set_pgd(pgd_t *pgdp, pgd_t pgd)
+ {
+-	*pgdp = kaiser_set_shadow_pgd(pgdp, pgd);
++	WRITE_ONCE(*pgdp, kaiser_set_shadow_pgd(pgdp, pgd));
+ }
+ 
+ static inline void native_pgd_clear(pgd_t *pgd)
+diff --git a/arch/x86/include/asm/processor.h b/arch/x86/include/asm/processor.h
+index 440a948c4feb..dab73faef9b0 100644
+--- a/arch/x86/include/asm/processor.h
++++ b/arch/x86/include/asm/processor.h
+@@ -845,4 +845,11 @@ bool xen_set_default_idle(void);
+ 
+ void stop_this_cpu(void *dummy);
+ void df_debug(struct pt_regs *regs, long error_code);
++
++enum mds_mitigations {
++	MDS_MITIGATION_OFF,
++	MDS_MITIGATION_FULL,
++	MDS_MITIGATION_VMWERV,
++};
++
+ #endif /* _ASM_X86_PROCESSOR_H */
+diff --git a/arch/x86/include/asm/spec-ctrl.h b/arch/x86/include/asm/spec-ctrl.h
+index ae7c2c5cd7f0..5393babc0598 100644
+--- a/arch/x86/include/asm/spec-ctrl.h
++++ b/arch/x86/include/asm/spec-ctrl.h
+@@ -53,12 +53,24 @@ static inline u64 ssbd_tif_to_spec_ctrl(u64 tifn)
+ 	return (tifn & _TIF_SSBD) >> (TIF_SSBD - SPEC_CTRL_SSBD_SHIFT);
+ }
+ 
++static inline u64 stibp_tif_to_spec_ctrl(u64 tifn)
++{
++	BUILD_BUG_ON(TIF_SPEC_IB < SPEC_CTRL_STIBP_SHIFT);
++	return (tifn & _TIF_SPEC_IB) >> (TIF_SPEC_IB - SPEC_CTRL_STIBP_SHIFT);
++}
++
+ static inline unsigned long ssbd_spec_ctrl_to_tif(u64 spec_ctrl)
+ {
+ 	BUILD_BUG_ON(TIF_SSBD < SPEC_CTRL_SSBD_SHIFT);
+ 	return (spec_ctrl & SPEC_CTRL_SSBD) << (TIF_SSBD - SPEC_CTRL_SSBD_SHIFT);
+ }
+ 
++static inline unsigned long stibp_spec_ctrl_to_tif(u64 spec_ctrl)
++{
++	BUILD_BUG_ON(TIF_SPEC_IB < SPEC_CTRL_STIBP_SHIFT);
++	return (spec_ctrl & SPEC_CTRL_STIBP) << (TIF_SPEC_IB - SPEC_CTRL_STIBP_SHIFT);
++}
++
+ static inline u64 ssbd_tif_to_amd_ls_cfg(u64 tifn)
+ {
+ 	return (tifn & _TIF_SSBD) ? x86_amd_ls_cfg_ssbd_mask : 0ULL;
+@@ -70,11 +82,7 @@ extern void speculative_store_bypass_ht_init(void);
+ static inline void speculative_store_bypass_ht_init(void) { }
+ #endif
+ 
+-extern void speculative_store_bypass_update(unsigned long tif);
+-
+-static inline void speculative_store_bypass_update_current(void)
+-{
+-	speculative_store_bypass_update(current_thread_info()->flags);
+-}
++extern void speculation_ctrl_update(unsigned long tif);
++extern void speculation_ctrl_update_current(void);
+ 
+ #endif
+diff --git a/arch/x86/include/asm/switch_to.h b/arch/x86/include/asm/switch_to.h
+index 025ecfaba9c9..4ff0878f4633 100644
+--- a/arch/x86/include/asm/switch_to.h
++++ b/arch/x86/include/asm/switch_to.h
+@@ -6,9 +6,6 @@
+ struct task_struct; /* one of the stranger aspects of C forward declarations */
+ __visible struct task_struct *__switch_to(struct task_struct *prev,
+ 					   struct task_struct *next);
+-struct tss_struct;
+-void __switch_to_xtra(struct task_struct *prev_p, struct task_struct *next_p,
+-		      struct tss_struct *tss);
+ 
+ #ifdef CONFIG_X86_32
+ 
+diff --git a/arch/x86/include/asm/thread_info.h b/arch/x86/include/asm/thread_info.h
+index a96e88b243ef..e522b15fa3f0 100644
+--- a/arch/x86/include/asm/thread_info.h
++++ b/arch/x86/include/asm/thread_info.h
+@@ -92,10 +92,12 @@ struct thread_info {
+ #define TIF_SIGPENDING		2	/* signal pending */
+ #define TIF_NEED_RESCHED	3	/* rescheduling necessary */
+ #define TIF_SINGLESTEP		4	/* reenable singlestep on user return*/
+-#define TIF_SSBD		5	/* Reduced data speculation */
++#define TIF_SSBD		5	/* Speculative store bypass disable */
+ #define TIF_SYSCALL_EMU		6	/* syscall emulation active */
+ #define TIF_SYSCALL_AUDIT	7	/* syscall auditing active */
+ #define TIF_SECCOMP		8	/* secure computing */
++#define TIF_SPEC_IB		9	/* Indirect branch speculation mitigation */
++#define TIF_SPEC_FORCE_UPDATE	10	/* Force speculation MSR update in context switch */
+ #define TIF_USER_RETURN_NOTIFY	11	/* notify kernel of userspace return */
+ #define TIF_UPROBE		12	/* breakpointed or singlestepping */
+ #define TIF_NOTSC		16	/* TSC is not accessible in userland */
+@@ -121,6 +123,8 @@ struct thread_info {
+ #define _TIF_SYSCALL_EMU	(1 << TIF_SYSCALL_EMU)
+ #define _TIF_SYSCALL_AUDIT	(1 << TIF_SYSCALL_AUDIT)
+ #define _TIF_SECCOMP		(1 << TIF_SECCOMP)
++#define _TIF_SPEC_IB		(1 << TIF_SPEC_IB)
++#define _TIF_SPEC_FORCE_UPDATE	(1 << TIF_SPEC_FORCE_UPDATE)
+ #define _TIF_USER_RETURN_NOTIFY	(1 << TIF_USER_RETURN_NOTIFY)
+ #define _TIF_UPROBE		(1 << TIF_UPROBE)
+ #define _TIF_NOTSC		(1 << TIF_NOTSC)
+@@ -148,8 +152,18 @@ struct thread_info {
+ 	_TIF_NOHZ)
+ 
+ /* flags to check in __switch_to() */
+-#define _TIF_WORK_CTXSW							\
+-	(_TIF_IO_BITMAP|_TIF_NOTSC|_TIF_BLOCKSTEP|_TIF_SSBD)
++#define _TIF_WORK_CTXSW_BASE						\
++	(_TIF_IO_BITMAP|_TIF_NOTSC|_TIF_BLOCKSTEP|			\
++	 _TIF_SSBD | _TIF_SPEC_FORCE_UPDATE)
++
++/*
++ * Avoid calls to __switch_to_xtra() on UP as STIBP is not evaluated.
++ */
++#ifdef CONFIG_SMP
++# define _TIF_WORK_CTXSW	(_TIF_WORK_CTXSW_BASE | _TIF_SPEC_IB)
++#else
++# define _TIF_WORK_CTXSW	(_TIF_WORK_CTXSW_BASE)
++#endif
+ 
+ #define _TIF_WORK_CTXSW_PREV (_TIF_WORK_CTXSW|_TIF_USER_RETURN_NOTIFY)
+ #define _TIF_WORK_CTXSW_NEXT (_TIF_WORK_CTXSW)
+diff --git a/arch/x86/include/asm/tlbflush.h b/arch/x86/include/asm/tlbflush.h
+index 72cfe3e53af1..8dab88b85785 100644
+--- a/arch/x86/include/asm/tlbflush.h
++++ b/arch/x86/include/asm/tlbflush.h
+@@ -68,8 +68,12 @@ static inline void invpcid_flush_all_nonglobals(void)
+ struct tlb_state {
+ 	struct mm_struct *active_mm;
+ 	int state;
+-	/* last user mm's ctx id */
+-	u64 last_ctx_id;
++
++	/* Last user mm for optimizing IBPB */
++	union {
++		struct mm_struct	*last_user_mm;
++		unsigned long		last_user_mm_ibpb;
++	};
+ 
+ 	/*
+ 	 * Access to this CR4 shadow and to H/W CR4 is protected by
+diff --git a/arch/x86/include/uapi/asm/Kbuild b/arch/x86/include/uapi/asm/Kbuild
+index 3dec769cadf7..1c532b3f18ea 100644
+--- a/arch/x86/include/uapi/asm/Kbuild
++++ b/arch/x86/include/uapi/asm/Kbuild
+@@ -27,7 +27,6 @@ header-y += ldt.h
+ header-y += mce.h
+ header-y += mman.h
+ header-y += msgbuf.h
+-header-y += msr-index.h
+ header-y += msr.h
+ header-y += mtrr.h
+ header-y += param.h
+diff --git a/arch/x86/include/uapi/asm/mce.h b/arch/x86/include/uapi/asm/mce.h
+index 03429da2fa80..83b9be4e0492 100644
+--- a/arch/x86/include/uapi/asm/mce.h
++++ b/arch/x86/include/uapi/asm/mce.h
+@@ -26,6 +26,10 @@ struct mce {
+ 	__u32 socketid;	/* CPU socket ID */
+ 	__u32 apicid;	/* CPU initial apic ID */
+ 	__u64 mcgcap;	/* MCGCAP MSR: machine check capabilities of CPU */
++	__u64 synd;	/* MCA_SYND MSR: only valid on SMCA systems */
++	__u64 ipid;	/* MCA_IPID MSR: only valid on SMCA systems */
++	__u64 ppin;	/* Protected Processor Inventory Number */
++	__u32 microcode;/* Microcode revision */
+ };
+ 
+ #define MCE_GET_RECORD_LEN   _IOR('M', 1, int)
+diff --git a/arch/x86/kernel/cpu/bugs.c b/arch/x86/kernel/cpu/bugs.c
+index 621bc6561189..2017fa20611c 100644
+--- a/arch/x86/kernel/cpu/bugs.c
++++ b/arch/x86/kernel/cpu/bugs.c
+@@ -13,6 +13,7 @@
+ #include <linux/module.h>
+ #include <linux/nospec.h>
+ #include <linux/prctl.h>
++#include <linux/sched/smt.h>
+ 
+ #include <asm/spec-ctrl.h>
+ #include <asm/cmdline.h>
+@@ -23,6 +24,7 @@
+ #include <asm/msr.h>
+ #include <asm/paravirt.h>
+ #include <asm/alternative.h>
++#include <asm/hypervisor.h>
+ #include <asm/pgtable.h>
+ #include <asm/cacheflush.h>
+ #include <asm/intel-family.h>
+@@ -31,13 +33,12 @@
+ static void __init spectre_v2_select_mitigation(void);
+ static void __init ssb_select_mitigation(void);
+ static void __init l1tf_select_mitigation(void);
++static void __init mds_select_mitigation(void);
+ 
+-/*
+- * Our boot-time value of the SPEC_CTRL MSR. We read it once so that any
+- * writes to SPEC_CTRL contain whatever reserved bits have been set.
+- */
++/* The base value of the SPEC_CTRL MSR that always has to be preserved. */
+ u64 x86_spec_ctrl_base;
+ EXPORT_SYMBOL_GPL(x86_spec_ctrl_base);
++static DEFINE_MUTEX(spec_ctrl_mutex);
+ 
+ /*
+  * The vendor and possibly platform specific bits which can be modified in
+@@ -52,6 +53,19 @@ static u64 x86_spec_ctrl_mask = SPEC_CTRL_IBRS;
+ u64 x86_amd_ls_cfg_base;
+ u64 x86_amd_ls_cfg_ssbd_mask;
+ 
++/* Control conditional STIPB in switch_to() */
++DEFINE_STATIC_KEY_FALSE(switch_to_cond_stibp);
++/* Control conditional IBPB in switch_mm() */
++DEFINE_STATIC_KEY_FALSE(switch_mm_cond_ibpb);
++/* Control unconditional IBPB in switch_mm() */
++DEFINE_STATIC_KEY_FALSE(switch_mm_always_ibpb);
++
++/* Control MDS CPU buffer clear before returning to user space */
++DEFINE_STATIC_KEY_FALSE(mds_user_clear);
++/* Control MDS CPU buffer clear before idling (halt, mwait) */
++DEFINE_STATIC_KEY_FALSE(mds_idle_clear);
++EXPORT_SYMBOL_GPL(mds_idle_clear);
++
+ void __init check_bugs(void)
+ {
+ 	identify_boot_cpu();
+@@ -84,6 +98,10 @@ void __init check_bugs(void)
+ 
+ 	l1tf_select_mitigation();
+ 
++	mds_select_mitigation();
++
++	arch_smt_update();
++
+ #ifdef CONFIG_X86_32
+ 	/*
+ 	 * Check whether we are able to run this kernel safely on SMP.
+@@ -116,29 +134,6 @@ void __init check_bugs(void)
+ #endif
+ }
+ 
+-/* The kernel command line selection */
+-enum spectre_v2_mitigation_cmd {
+-	SPECTRE_V2_CMD_NONE,
+-	SPECTRE_V2_CMD_AUTO,
+-	SPECTRE_V2_CMD_FORCE,
+-	SPECTRE_V2_CMD_RETPOLINE,
+-	SPECTRE_V2_CMD_RETPOLINE_GENERIC,
+-	SPECTRE_V2_CMD_RETPOLINE_AMD,
+-};
+-
+-static const char *spectre_v2_strings[] = {
+-	[SPECTRE_V2_NONE]			= "Vulnerable",
+-	[SPECTRE_V2_RETPOLINE_MINIMAL]		= "Vulnerable: Minimal generic ASM retpoline",
+-	[SPECTRE_V2_RETPOLINE_MINIMAL_AMD]	= "Vulnerable: Minimal AMD ASM retpoline",
+-	[SPECTRE_V2_RETPOLINE_GENERIC]		= "Mitigation: Full generic retpoline",
+-	[SPECTRE_V2_RETPOLINE_AMD]		= "Mitigation: Full AMD retpoline",
+-};
+-
+-#undef pr_fmt
+-#define pr_fmt(fmt)     "Spectre V2 : " fmt
+-
+-static enum spectre_v2_mitigation spectre_v2_enabled = SPECTRE_V2_NONE;
+-
+ void
+ x86_virt_spec_ctrl(u64 guest_spec_ctrl, u64 guest_virt_spec_ctrl, bool setguest)
+ {
+@@ -156,9 +151,14 @@ x86_virt_spec_ctrl(u64 guest_spec_ctrl, u64 guest_virt_spec_ctrl, bool setguest)
+ 		guestval |= guest_spec_ctrl & x86_spec_ctrl_mask;
+ 
+ 		/* SSBD controlled in MSR_SPEC_CTRL */
+-		if (static_cpu_has(X86_FEATURE_SPEC_CTRL_SSBD))
++		if (static_cpu_has(X86_FEATURE_SPEC_CTRL_SSBD) ||
++		    static_cpu_has(X86_FEATURE_AMD_SSBD))
+ 			hostval |= ssbd_tif_to_spec_ctrl(ti->flags);
+ 
++		/* Conditional STIBP enabled? */
++		if (static_branch_unlikely(&switch_to_cond_stibp))
++			hostval |= stibp_tif_to_spec_ctrl(ti->flags);
++
+ 		if (hostval != guestval) {
+ 			msrval = setguest ? guestval : hostval;
+ 			wrmsrl(MSR_IA32_SPEC_CTRL, msrval);
+@@ -192,7 +192,7 @@ x86_virt_spec_ctrl(u64 guest_spec_ctrl, u64 guest_virt_spec_ctrl, bool setguest)
+ 		tif = setguest ? ssbd_spec_ctrl_to_tif(guestval) :
+ 				 ssbd_spec_ctrl_to_tif(hostval);
+ 
+-		speculative_store_bypass_update(tif);
++		speculation_ctrl_update(tif);
+ 	}
+ }
+ EXPORT_SYMBOL_GPL(x86_virt_spec_ctrl);
+@@ -207,6 +207,57 @@ static void x86_amd_ssb_disable(void)
+ 		wrmsrl(MSR_AMD64_LS_CFG, msrval);
+ }
+ 
++#undef pr_fmt
++#define pr_fmt(fmt)	"MDS: " fmt
++
++/* Default mitigation for MDS-affected CPUs */
++static enum mds_mitigations mds_mitigation = MDS_MITIGATION_FULL;
++
++static const char * const mds_strings[] = {
++	[MDS_MITIGATION_OFF]	= "Vulnerable",
++	[MDS_MITIGATION_FULL]	= "Mitigation: Clear CPU buffers",
++	[MDS_MITIGATION_VMWERV]	= "Vulnerable: Clear CPU buffers attempted, no microcode",
++};
++
++static void __init mds_select_mitigation(void)
++{
++	if (!boot_cpu_has_bug(X86_BUG_MDS) || cpu_mitigations_off()) {
++		mds_mitigation = MDS_MITIGATION_OFF;
++		return;
++	}
++
++	if (mds_mitigation == MDS_MITIGATION_FULL) {
++		if (!boot_cpu_has(X86_FEATURE_MD_CLEAR))
++			mds_mitigation = MDS_MITIGATION_VMWERV;
++		static_branch_enable(&mds_user_clear);
++	}
++	pr_info("%s\n", mds_strings[mds_mitigation]);
++}
++
++static int __init mds_cmdline(char *str)
++{
++	if (!boot_cpu_has_bug(X86_BUG_MDS))
++		return 0;
++
++	if (!str)
++		return -EINVAL;
++
++	if (!strcmp(str, "off"))
++		mds_mitigation = MDS_MITIGATION_OFF;
++	else if (!strcmp(str, "full"))
++		mds_mitigation = MDS_MITIGATION_FULL;
++
++	return 0;
++}
++early_param("mds", mds_cmdline);
++
++#undef pr_fmt
++#define pr_fmt(fmt)     "Spectre V2 : " fmt
++
++static enum spectre_v2_mitigation spectre_v2_enabled = SPECTRE_V2_NONE;
++
++static enum spectre_v2_user_mitigation spectre_v2_user = SPECTRE_V2_USER_NONE;
++
+ #ifdef RETPOLINE
+ static bool spectre_v2_bad_module;
+ 
+@@ -228,67 +279,224 @@ static inline const char *spectre_v2_module_string(void)
+ static inline const char *spectre_v2_module_string(void) { return ""; }
+ #endif
+ 
+-static void __init spec2_print_if_insecure(const char *reason)
++static inline bool match_option(const char *arg, int arglen, const char *opt)
+ {
+-	if (boot_cpu_has_bug(X86_BUG_SPECTRE_V2))
+-		pr_info("%s selected on command line.\n", reason);
++	int len = strlen(opt);
++
++	return len == arglen && !strncmp(arg, opt, len);
+ }
+ 
+-static void __init spec2_print_if_secure(const char *reason)
++/* The kernel command line selection for spectre v2 */
++enum spectre_v2_mitigation_cmd {
++	SPECTRE_V2_CMD_NONE,
++	SPECTRE_V2_CMD_AUTO,
++	SPECTRE_V2_CMD_FORCE,
++	SPECTRE_V2_CMD_RETPOLINE,
++	SPECTRE_V2_CMD_RETPOLINE_GENERIC,
++	SPECTRE_V2_CMD_RETPOLINE_AMD,
++};
++
++enum spectre_v2_user_cmd {
++	SPECTRE_V2_USER_CMD_NONE,
++	SPECTRE_V2_USER_CMD_AUTO,
++	SPECTRE_V2_USER_CMD_FORCE,
++	SPECTRE_V2_USER_CMD_PRCTL,
++	SPECTRE_V2_USER_CMD_PRCTL_IBPB,
++	SPECTRE_V2_USER_CMD_SECCOMP,
++	SPECTRE_V2_USER_CMD_SECCOMP_IBPB,
++};
++
++static const char * const spectre_v2_user_strings[] = {
++	[SPECTRE_V2_USER_NONE]		= "User space: Vulnerable",
++	[SPECTRE_V2_USER_STRICT]	= "User space: Mitigation: STIBP protection",
++	[SPECTRE_V2_USER_PRCTL]		= "User space: Mitigation: STIBP via prctl",
++	[SPECTRE_V2_USER_SECCOMP]	= "User space: Mitigation: STIBP via seccomp and prctl",
++};
++
++static const struct {
++	const char			*option;
++	enum spectre_v2_user_cmd	cmd;
++	bool				secure;
++} v2_user_options[] __initconst = {
++	{ "auto",		SPECTRE_V2_USER_CMD_AUTO,		false },
++	{ "off",		SPECTRE_V2_USER_CMD_NONE,		false },
++	{ "on",			SPECTRE_V2_USER_CMD_FORCE,		true  },
++	{ "prctl",		SPECTRE_V2_USER_CMD_PRCTL,		false },
++	{ "prctl,ibpb",		SPECTRE_V2_USER_CMD_PRCTL_IBPB,		false },
++	{ "seccomp",		SPECTRE_V2_USER_CMD_SECCOMP,		false },
++	{ "seccomp,ibpb",	SPECTRE_V2_USER_CMD_SECCOMP_IBPB,	false },
++};
++
++static void __init spec_v2_user_print_cond(const char *reason, bool secure)
+ {
+-	if (!boot_cpu_has_bug(X86_BUG_SPECTRE_V2))
+-		pr_info("%s selected on command line.\n", reason);
++	if (boot_cpu_has_bug(X86_BUG_SPECTRE_V2) != secure)
++		pr_info("spectre_v2_user=%s forced on command line.\n", reason);
+ }
+ 
+-static inline bool retp_compiler(void)
++static enum spectre_v2_user_cmd __init
++spectre_v2_parse_user_cmdline(enum spectre_v2_mitigation_cmd v2_cmd)
+ {
+-	return __is_defined(RETPOLINE);
++	char arg[20];
++	int ret, i;
++
++	switch (v2_cmd) {
++	case SPECTRE_V2_CMD_NONE:
++		return SPECTRE_V2_USER_CMD_NONE;
++	case SPECTRE_V2_CMD_FORCE:
++		return SPECTRE_V2_USER_CMD_FORCE;
++	default:
++		break;
++	}
++
++	ret = cmdline_find_option(boot_command_line, "spectre_v2_user",
++				  arg, sizeof(arg));
++	if (ret < 0)
++		return SPECTRE_V2_USER_CMD_AUTO;
++
++	for (i = 0; i < ARRAY_SIZE(v2_user_options); i++) {
++		if (match_option(arg, ret, v2_user_options[i].option)) {
++			spec_v2_user_print_cond(v2_user_options[i].option,
++						v2_user_options[i].secure);
++			return v2_user_options[i].cmd;
++		}
++	}
++
++	pr_err("Unknown user space protection option (%s). Switching to AUTO select\n", arg);
++	return SPECTRE_V2_USER_CMD_AUTO;
+ }
+ 
+-static inline bool match_option(const char *arg, int arglen, const char *opt)
++static void __init
++spectre_v2_user_select_mitigation(enum spectre_v2_mitigation_cmd v2_cmd)
+ {
+-	int len = strlen(opt);
++	enum spectre_v2_user_mitigation mode = SPECTRE_V2_USER_NONE;
++	bool smt_possible = IS_ENABLED(CONFIG_SMP);
++	enum spectre_v2_user_cmd cmd;
+ 
+-	return len == arglen && !strncmp(arg, opt, len);
++	if (!boot_cpu_has(X86_FEATURE_IBPB) && !boot_cpu_has(X86_FEATURE_STIBP))
++		return;
++
++	if (!IS_ENABLED(CONFIG_SMP))
++		smt_possible = false;
++
++	cmd = spectre_v2_parse_user_cmdline(v2_cmd);
++	switch (cmd) {
++	case SPECTRE_V2_USER_CMD_NONE:
++		goto set_mode;
++	case SPECTRE_V2_USER_CMD_FORCE:
++		mode = SPECTRE_V2_USER_STRICT;
++		break;
++	case SPECTRE_V2_USER_CMD_PRCTL:
++	case SPECTRE_V2_USER_CMD_PRCTL_IBPB:
++		mode = SPECTRE_V2_USER_PRCTL;
++		break;
++	case SPECTRE_V2_USER_CMD_AUTO:
++	case SPECTRE_V2_USER_CMD_SECCOMP:
++	case SPECTRE_V2_USER_CMD_SECCOMP_IBPB:
++		if (IS_ENABLED(CONFIG_SECCOMP))
++			mode = SPECTRE_V2_USER_SECCOMP;
++		else
++			mode = SPECTRE_V2_USER_PRCTL;
++		break;
++	}
++
++	/* Initialize Indirect Branch Prediction Barrier */
++	if (boot_cpu_has(X86_FEATURE_IBPB)) {
++		setup_force_cpu_cap(X86_FEATURE_USE_IBPB);
++
++		switch (cmd) {
++		case SPECTRE_V2_USER_CMD_FORCE:
++		case SPECTRE_V2_USER_CMD_PRCTL_IBPB:
++		case SPECTRE_V2_USER_CMD_SECCOMP_IBPB:
++			static_branch_enable(&switch_mm_always_ibpb);
++			break;
++		case SPECTRE_V2_USER_CMD_PRCTL:
++		case SPECTRE_V2_USER_CMD_AUTO:
++		case SPECTRE_V2_USER_CMD_SECCOMP:
++			static_branch_enable(&switch_mm_cond_ibpb);
++			break;
++		default:
++			break;
++		}
++
++		pr_info("mitigation: Enabling %s Indirect Branch Prediction Barrier\n",
++			static_key_enabled(&switch_mm_always_ibpb) ?
++			"always-on" : "conditional");
++	}
++
++	/* If enhanced IBRS is enabled no STIPB required */
++	if (spectre_v2_enabled == SPECTRE_V2_IBRS_ENHANCED)
++		return;
++
++	/*
++	 * If SMT is not possible or STIBP is not available clear the STIPB
++	 * mode.
++	 */
++	if (!smt_possible || !boot_cpu_has(X86_FEATURE_STIBP))
++		mode = SPECTRE_V2_USER_NONE;
++set_mode:
++	spectre_v2_user = mode;
++	/* Only print the STIBP mode when SMT possible */
++	if (smt_possible)
++		pr_info("%s\n", spectre_v2_user_strings[mode]);
+ }
+ 
++static const char * const spectre_v2_strings[] = {
++	[SPECTRE_V2_NONE]			= "Vulnerable",
++	[SPECTRE_V2_RETPOLINE_MINIMAL]		= "Vulnerable: Minimal generic ASM retpoline",
++	[SPECTRE_V2_RETPOLINE_MINIMAL_AMD]	= "Vulnerable: Minimal AMD ASM retpoline",
++	[SPECTRE_V2_RETPOLINE_GENERIC]		= "Mitigation: Full generic retpoline",
++	[SPECTRE_V2_RETPOLINE_AMD]		= "Mitigation: Full AMD retpoline",
++	[SPECTRE_V2_IBRS_ENHANCED]		= "Mitigation: Enhanced IBRS",
++};
++
+ static const struct {
+ 	const char *option;
+ 	enum spectre_v2_mitigation_cmd cmd;
+ 	bool secure;
+-} mitigation_options[] = {
+-	{ "off",               SPECTRE_V2_CMD_NONE,              false },
+-	{ "on",                SPECTRE_V2_CMD_FORCE,             true },
+-	{ "retpoline",         SPECTRE_V2_CMD_RETPOLINE,         false },
+-	{ "retpoline,amd",     SPECTRE_V2_CMD_RETPOLINE_AMD,     false },
+-	{ "retpoline,generic", SPECTRE_V2_CMD_RETPOLINE_GENERIC, false },
+-	{ "auto",              SPECTRE_V2_CMD_AUTO,              false },
++} mitigation_options[] __initconst = {
++	{ "off",		SPECTRE_V2_CMD_NONE,		  false },
++	{ "on",			SPECTRE_V2_CMD_FORCE,		  true  },
++	{ "retpoline",		SPECTRE_V2_CMD_RETPOLINE,	  false },
++	{ "retpoline,amd",	SPECTRE_V2_CMD_RETPOLINE_AMD,	  false },
++	{ "retpoline,generic",	SPECTRE_V2_CMD_RETPOLINE_GENERIC, false },
++	{ "auto",		SPECTRE_V2_CMD_AUTO,		  false },
+ };
+ 
++static void __init spec_v2_print_cond(const char *reason, bool secure)
++{
++	if (boot_cpu_has_bug(X86_BUG_SPECTRE_V2) != secure)
++		pr_info("%s selected on command line.\n", reason);
++}
++
++static inline bool retp_compiler(void)
++{
++	return __is_defined(RETPOLINE);
++}
++
+ static enum spectre_v2_mitigation_cmd __init spectre_v2_parse_cmdline(void)
+ {
++	enum spectre_v2_mitigation_cmd cmd = SPECTRE_V2_CMD_AUTO;
+ 	char arg[20];
+ 	int ret, i;
+-	enum spectre_v2_mitigation_cmd cmd = SPECTRE_V2_CMD_AUTO;
+ 
+-	if (cmdline_find_option_bool(boot_command_line, "nospectre_v2"))
++	if (cmdline_find_option_bool(boot_command_line, "nospectre_v2") ||
++	    cpu_mitigations_off())
+ 		return SPECTRE_V2_CMD_NONE;
+-	else {
+-		ret = cmdline_find_option(boot_command_line, "spectre_v2", arg, sizeof(arg));
+-		if (ret < 0)
+-			return SPECTRE_V2_CMD_AUTO;
+ 
+-		for (i = 0; i < ARRAY_SIZE(mitigation_options); i++) {
+-			if (!match_option(arg, ret, mitigation_options[i].option))
+-				continue;
+-			cmd = mitigation_options[i].cmd;
+-			break;
+-		}
++	ret = cmdline_find_option(boot_command_line, "spectre_v2", arg, sizeof(arg));
++	if (ret < 0)
++		return SPECTRE_V2_CMD_AUTO;
+ 
+-		if (i >= ARRAY_SIZE(mitigation_options)) {
+-			pr_err("unknown option (%s). Switching to AUTO select\n", arg);
+-			return SPECTRE_V2_CMD_AUTO;
+-		}
++	for (i = 0; i < ARRAY_SIZE(mitigation_options); i++) {
++		if (!match_option(arg, ret, mitigation_options[i].option))
++			continue;
++		cmd = mitigation_options[i].cmd;
++		break;
++	}
++
++	if (i >= ARRAY_SIZE(mitigation_options)) {
++		pr_err("unknown option (%s). Switching to AUTO select\n", arg);
++		return SPECTRE_V2_CMD_AUTO;
+ 	}
+ 
+ 	if ((cmd == SPECTRE_V2_CMD_RETPOLINE ||
+@@ -305,11 +513,8 @@ static enum spectre_v2_mitigation_cmd __init spectre_v2_parse_cmdline(void)
+ 		return SPECTRE_V2_CMD_AUTO;
+ 	}
+ 
+-	if (mitigation_options[i].secure)
+-		spec2_print_if_secure(mitigation_options[i].option);
+-	else
+-		spec2_print_if_insecure(mitigation_options[i].option);
+-
++	spec_v2_print_cond(mitigation_options[i].option,
++			   mitigation_options[i].secure);
+ 	return cmd;
+ }
+ 
+@@ -332,6 +537,13 @@ static void __init spectre_v2_select_mitigation(void)
+ 
+ 	case SPECTRE_V2_CMD_FORCE:
+ 	case SPECTRE_V2_CMD_AUTO:
++		if (boot_cpu_has(X86_FEATURE_IBRS_ENHANCED)) {
++			mode = SPECTRE_V2_IBRS_ENHANCED;
++			/* Force it so VMEXIT will restore correctly */
++			x86_spec_ctrl_base |= SPEC_CTRL_IBRS;
++			wrmsrl(MSR_IA32_SPEC_CTRL, x86_spec_ctrl_base);
++			goto specv2_set_mode;
++		}
+ 		if (IS_ENABLED(CONFIG_RETPOLINE))
+ 			goto retpoline_auto;
+ 		break;
+@@ -369,6 +581,7 @@ retpoline_auto:
+ 		setup_force_cpu_cap(X86_FEATURE_RETPOLINE);
+ 	}
+ 
++specv2_set_mode:
+ 	spectre_v2_enabled = mode;
+ 	pr_info("%s\n", spectre_v2_strings[mode]);
+ 
+@@ -383,20 +596,114 @@ retpoline_auto:
+ 	setup_force_cpu_cap(X86_FEATURE_RSB_CTXSW);
+ 	pr_info("Spectre v2 / SpectreRSB mitigation: Filling RSB on context switch\n");
+ 
+-	/* Initialize Indirect Branch Prediction Barrier if supported */
+-	if (boot_cpu_has(X86_FEATURE_IBPB)) {
+-		setup_force_cpu_cap(X86_FEATURE_USE_IBPB);
+-		pr_info("Spectre v2 mitigation: Enabling Indirect Branch Prediction Barrier\n");
+-	}
+-
+ 	/*
+ 	 * Retpoline means the kernel is safe because it has no indirect
+-	 * branches. But firmware isn't, so use IBRS to protect that.
++	 * branches. Enhanced IBRS protects firmware too, so, enable restricted
++	 * speculation around firmware calls only when Enhanced IBRS isn't
++	 * supported.
++	 *
++	 * Use "mode" to check Enhanced IBRS instead of boot_cpu_has(), because
++	 * the user might select retpoline on the kernel command line and if
++	 * the CPU supports Enhanced IBRS, kernel might un-intentionally not
++	 * enable IBRS around firmware calls.
+ 	 */
+-	if (boot_cpu_has(X86_FEATURE_IBRS)) {
++	if (boot_cpu_has(X86_FEATURE_IBRS) && mode != SPECTRE_V2_IBRS_ENHANCED) {
+ 		setup_force_cpu_cap(X86_FEATURE_USE_IBRS_FW);
+ 		pr_info("Enabling Restricted Speculation for firmware calls\n");
+ 	}
++
++	/* Set up IBPB and STIBP depending on the general spectre V2 command */
++	spectre_v2_user_select_mitigation(cmd);
++}
++
++static void update_stibp_msr(void * __unused)
++{
++	wrmsrl(MSR_IA32_SPEC_CTRL, x86_spec_ctrl_base);
++}
++
++/* Update x86_spec_ctrl_base in case SMT state changed. */
++static void update_stibp_strict(void)
++{
++	u64 mask = x86_spec_ctrl_base & ~SPEC_CTRL_STIBP;
++
++	if (sched_smt_active())
++		mask |= SPEC_CTRL_STIBP;
++
++	if (mask == x86_spec_ctrl_base)
++		return;
++
++	pr_info("Update user space SMT mitigation: STIBP %s\n",
++		mask & SPEC_CTRL_STIBP ? "always-on" : "off");
++	x86_spec_ctrl_base = mask;
++	on_each_cpu(update_stibp_msr, NULL, 1);
++}
++
++/* Update the static key controlling the evaluation of TIF_SPEC_IB */
++static void update_indir_branch_cond(void)
++{
++	if (sched_smt_active())
++		static_branch_enable(&switch_to_cond_stibp);
++	else
++		static_branch_disable(&switch_to_cond_stibp);
++}
++
++#undef pr_fmt
++#define pr_fmt(fmt) fmt
++
++/* Update the static key controlling the MDS CPU buffer clear in idle */
++static void update_mds_branch_idle(void)
++{
++	/*
++	 * Enable the idle clearing if SMT is active on CPUs which are
++	 * affected only by MSBDS and not any other MDS variant.
++	 *
++	 * The other variants cannot be mitigated when SMT is enabled, so
++	 * clearing the buffers on idle just to prevent the Store Buffer
++	 * repartitioning leak would be a window dressing exercise.
++	 */
++	if (!boot_cpu_has_bug(X86_BUG_MSBDS_ONLY))
++		return;
++
++	if (sched_smt_active())
++		static_branch_enable(&mds_idle_clear);
++	else
++		static_branch_disable(&mds_idle_clear);
++}
++
++#define MDS_MSG_SMT "MDS CPU bug present and SMT on, data leak possible. See https://www.kernel.org/doc/html/latest/admin-guide/hw-vuln/mds.html for more details.\n"
++
++void arch_smt_update(void)
++{
++	/* Enhanced IBRS implies STIBP. No update required. */
++	if (spectre_v2_enabled == SPECTRE_V2_IBRS_ENHANCED)
++		return;
++
++	mutex_lock(&spec_ctrl_mutex);
++
++	switch (spectre_v2_user) {
++	case SPECTRE_V2_USER_NONE:
++		break;
++	case SPECTRE_V2_USER_STRICT:
++		update_stibp_strict();
++		break;
++	case SPECTRE_V2_USER_PRCTL:
++	case SPECTRE_V2_USER_SECCOMP:
++		update_indir_branch_cond();
++		break;
++	}
++
++	switch (mds_mitigation) {
++	case MDS_MITIGATION_FULL:
++	case MDS_MITIGATION_VMWERV:
++		if (sched_smt_active() && !boot_cpu_has(X86_BUG_MSBDS_ONLY))
++			pr_warn_once(MDS_MSG_SMT);
++		update_mds_branch_idle();
++		break;
++	case MDS_MITIGATION_OFF:
++		break;
++	}
++
++	mutex_unlock(&spec_ctrl_mutex);
+ }
+ 
+ #undef pr_fmt
+@@ -413,7 +720,7 @@ enum ssb_mitigation_cmd {
+ 	SPEC_STORE_BYPASS_CMD_SECCOMP,
+ };
+ 
+-static const char *ssb_strings[] = {
++static const char * const ssb_strings[] = {
+ 	[SPEC_STORE_BYPASS_NONE]	= "Vulnerable",
+ 	[SPEC_STORE_BYPASS_DISABLE]	= "Mitigation: Speculative Store Bypass disabled",
+ 	[SPEC_STORE_BYPASS_PRCTL]	= "Mitigation: Speculative Store Bypass disabled via prctl",
+@@ -423,7 +730,7 @@ static const char *ssb_strings[] = {
+ static const struct {
+ 	const char *option;
+ 	enum ssb_mitigation_cmd cmd;
+-} ssb_mitigation_options[] = {
++} ssb_mitigation_options[]  __initconst = {
+ 	{ "auto",	SPEC_STORE_BYPASS_CMD_AUTO },    /* Platform decides */
+ 	{ "on",		SPEC_STORE_BYPASS_CMD_ON },      /* Disable Speculative Store Bypass */
+ 	{ "off",	SPEC_STORE_BYPASS_CMD_NONE },    /* Don't touch Speculative Store Bypass */
+@@ -437,7 +744,8 @@ static enum ssb_mitigation_cmd __init ssb_parse_cmdline(void)
+ 	char arg[20];
+ 	int ret, i;
+ 
+-	if (cmdline_find_option_bool(boot_command_line, "nospec_store_bypass_disable")) {
++	if (cmdline_find_option_bool(boot_command_line, "nospec_store_bypass_disable") ||
++	    cpu_mitigations_off()) {
+ 		return SPEC_STORE_BYPASS_CMD_NONE;
+ 	} else {
+ 		ret = cmdline_find_option(boot_command_line, "spec_store_bypass_disable",
+@@ -507,18 +815,16 @@ static enum ssb_mitigation __init __ssb_select_mitigation(void)
+ 	if (mode == SPEC_STORE_BYPASS_DISABLE) {
+ 		setup_force_cpu_cap(X86_FEATURE_SPEC_STORE_BYPASS_DISABLE);
+ 		/*
+-		 * Intel uses the SPEC CTRL MSR Bit(2) for this, while AMD uses
+-		 * a completely different MSR and bit dependent on family.
++		 * Intel uses the SPEC CTRL MSR Bit(2) for this, while AMD may
++		 * use a completely different MSR and bit dependent on family.
+ 		 */
+-		switch (boot_cpu_data.x86_vendor) {
+-		case X86_VENDOR_INTEL:
++		if (!static_cpu_has(X86_FEATURE_SPEC_CTRL_SSBD) &&
++		    !static_cpu_has(X86_FEATURE_AMD_SSBD)) {
++			x86_amd_ssb_disable();
++		} else {
+ 			x86_spec_ctrl_base |= SPEC_CTRL_SSBD;
+ 			x86_spec_ctrl_mask |= SPEC_CTRL_SSBD;
+ 			wrmsrl(MSR_IA32_SPEC_CTRL, x86_spec_ctrl_base);
+-			break;
+-		case X86_VENDOR_AMD:
+-			x86_amd_ssb_disable();
+-			break;
+ 		}
+ 	}
+ 
+@@ -536,10 +842,25 @@ static void ssb_select_mitigation(void)
+ #undef pr_fmt
+ #define pr_fmt(fmt)     "Speculation prctl: " fmt
+ 
+-static int ssb_prctl_set(struct task_struct *task, unsigned long ctrl)
++static void task_update_spec_tif(struct task_struct *tsk)
+ {
+-	bool update;
++	/* Force the update of the real TIF bits */
++	set_tsk_thread_flag(tsk, TIF_SPEC_FORCE_UPDATE);
++
++	/*
++	 * Immediately update the speculation control MSRs for the current
++	 * task, but for a non-current task delay setting the CPU
++	 * mitigation until it is scheduled next.
++	 *
++	 * This can only happen for SECCOMP mitigation. For PRCTL it's
++	 * always the current task.
++	 */
++	if (tsk == current)
++		speculation_ctrl_update_current();
++}
+ 
++static int ssb_prctl_set(struct task_struct *task, unsigned long ctrl)
++{
+ 	if (ssb_mode != SPEC_STORE_BYPASS_PRCTL &&
+ 	    ssb_mode != SPEC_STORE_BYPASS_SECCOMP)
+ 		return -ENXIO;
+@@ -550,28 +871,56 @@ static int ssb_prctl_set(struct task_struct *task, unsigned long ctrl)
+ 		if (task_spec_ssb_force_disable(task))
+ 			return -EPERM;
+ 		task_clear_spec_ssb_disable(task);
+-		update = test_and_clear_tsk_thread_flag(task, TIF_SSBD);
++		task_update_spec_tif(task);
+ 		break;
+ 	case PR_SPEC_DISABLE:
+ 		task_set_spec_ssb_disable(task);
+-		update = !test_and_set_tsk_thread_flag(task, TIF_SSBD);
++		task_update_spec_tif(task);
+ 		break;
+ 	case PR_SPEC_FORCE_DISABLE:
+ 		task_set_spec_ssb_disable(task);
+ 		task_set_spec_ssb_force_disable(task);
+-		update = !test_and_set_tsk_thread_flag(task, TIF_SSBD);
++		task_update_spec_tif(task);
+ 		break;
+ 	default:
+ 		return -ERANGE;
+ 	}
++	return 0;
++}
+ 
+-	/*
+-	 * If being set on non-current task, delay setting the CPU
+-	 * mitigation until it is next scheduled.
+-	 */
+-	if (task == current && update)
+-		speculative_store_bypass_update_current();
+-
++static int ib_prctl_set(struct task_struct *task, unsigned long ctrl)
++{
++	switch (ctrl) {
++	case PR_SPEC_ENABLE:
++		if (spectre_v2_user == SPECTRE_V2_USER_NONE)
++			return 0;
++		/*
++		 * Indirect branch speculation is always disabled in strict
++		 * mode.
++		 */
++		if (spectre_v2_user == SPECTRE_V2_USER_STRICT)
++			return -EPERM;
++		task_clear_spec_ib_disable(task);
++		task_update_spec_tif(task);
++		break;
++	case PR_SPEC_DISABLE:
++	case PR_SPEC_FORCE_DISABLE:
++		/*
++		 * Indirect branch speculation is always allowed when
++		 * mitigation is force disabled.
++		 */
++		if (spectre_v2_user == SPECTRE_V2_USER_NONE)
++			return -EPERM;
++		if (spectre_v2_user == SPECTRE_V2_USER_STRICT)
++			return 0;
++		task_set_spec_ib_disable(task);
++		if (ctrl == PR_SPEC_FORCE_DISABLE)
++			task_set_spec_ib_force_disable(task);
++		task_update_spec_tif(task);
++		break;
++	default:
++		return -ERANGE;
++	}
+ 	return 0;
+ }
+ 
+@@ -581,6 +930,8 @@ int arch_prctl_spec_ctrl_set(struct task_struct *task, unsigned long which,
+ 	switch (which) {
+ 	case PR_SPEC_STORE_BYPASS:
+ 		return ssb_prctl_set(task, ctrl);
++	case PR_SPEC_INDIRECT_BRANCH:
++		return ib_prctl_set(task, ctrl);
+ 	default:
+ 		return -ENODEV;
+ 	}
+@@ -591,6 +942,8 @@ void arch_seccomp_spec_mitigate(struct task_struct *task)
+ {
+ 	if (ssb_mode == SPEC_STORE_BYPASS_SECCOMP)
+ 		ssb_prctl_set(task, PR_SPEC_FORCE_DISABLE);
++	if (spectre_v2_user == SPECTRE_V2_USER_SECCOMP)
++		ib_prctl_set(task, PR_SPEC_FORCE_DISABLE);
+ }
+ #endif
+ 
+@@ -613,11 +966,35 @@ static int ssb_prctl_get(struct task_struct *task)
+ 	}
+ }
+ 
++static int ib_prctl_get(struct task_struct *task)
++{
++	if (!boot_cpu_has_bug(X86_BUG_SPECTRE_V2))
++		return PR_SPEC_NOT_AFFECTED;
++
++	switch (spectre_v2_user) {
++	case SPECTRE_V2_USER_NONE:
++		return PR_SPEC_ENABLE;
++	case SPECTRE_V2_USER_PRCTL:
++	case SPECTRE_V2_USER_SECCOMP:
++		if (task_spec_ib_force_disable(task))
++			return PR_SPEC_PRCTL | PR_SPEC_FORCE_DISABLE;
++		if (task_spec_ib_disable(task))
++			return PR_SPEC_PRCTL | PR_SPEC_DISABLE;
++		return PR_SPEC_PRCTL | PR_SPEC_ENABLE;
++	case SPECTRE_V2_USER_STRICT:
++		return PR_SPEC_DISABLE;
++	default:
++		return PR_SPEC_NOT_AFFECTED;
++	}
++}
++
+ int arch_prctl_spec_ctrl_get(struct task_struct *task, unsigned long which)
+ {
+ 	switch (which) {
+ 	case PR_SPEC_STORE_BYPASS:
+ 		return ssb_prctl_get(task);
++	case PR_SPEC_INDIRECT_BRANCH:
++		return ib_prctl_get(task);
+ 	default:
+ 		return -ENODEV;
+ 	}
+@@ -694,16 +1071,66 @@ static void __init l1tf_select_mitigation(void)
+ 		pr_info("You may make it effective by booting the kernel with mem=%llu parameter.\n",
+ 				half_pa);
+ 		pr_info("However, doing so will make a part of your RAM unusable.\n");
+-		pr_info("Reading https://www.kernel.org/doc/html/latest/admin-guide/l1tf.html might help you decide.\n");
++		pr_info("Reading https://www.kernel.org/doc/html/latest/admin-guide/hw-vuln/l1tf.html might help you decide.\n");
+ 		return;
+ 	}
+ 
+ 	setup_force_cpu_cap(X86_FEATURE_L1TF_PTEINV);
+ }
+ #undef pr_fmt
++#define pr_fmt(fmt) fmt
+ 
+ #ifdef CONFIG_SYSFS
+ 
++static ssize_t mds_show_state(char *buf)
++{
++#ifdef CONFIG_HYPERVISOR_GUEST
++	if (x86_hyper) {
++		return sprintf(buf, "%s; SMT Host state unknown\n",
++			       mds_strings[mds_mitigation]);
++	}
++#endif
++
++	if (boot_cpu_has(X86_BUG_MSBDS_ONLY)) {
++		return sprintf(buf, "%s; SMT %s\n", mds_strings[mds_mitigation],
++			       (mds_mitigation == MDS_MITIGATION_OFF ? "vulnerable" :
++			        sched_smt_active() ? "mitigated" : "disabled"));
++	}
++
++	return sprintf(buf, "%s; SMT %s\n", mds_strings[mds_mitigation],
++		       sched_smt_active() ? "vulnerable" : "disabled");
++}
++
++static char *stibp_state(void)
++{
++	if (spectre_v2_enabled == SPECTRE_V2_IBRS_ENHANCED)
++		return "";
++
++	switch (spectre_v2_user) {
++	case SPECTRE_V2_USER_NONE:
++		return ", STIBP: disabled";
++	case SPECTRE_V2_USER_STRICT:
++		return ", STIBP: forced";
++	case SPECTRE_V2_USER_PRCTL:
++	case SPECTRE_V2_USER_SECCOMP:
++		if (static_key_enabled(&switch_to_cond_stibp))
++			return ", STIBP: conditional";
++	}
++	return "";
++}
++
++static char *ibpb_state(void)
++{
++	if (boot_cpu_has(X86_FEATURE_IBPB)) {
++		if (static_key_enabled(&switch_mm_always_ibpb))
++			return ", IBPB: always-on";
++		if (static_key_enabled(&switch_mm_cond_ibpb))
++			return ", IBPB: conditional";
++		return ", IBPB: disabled";
++	}
++	return "";
++}
++
+ static ssize_t cpu_show_common(struct device *dev, struct device_attribute *attr,
+ 			       char *buf, unsigned int bug)
+ {
+@@ -721,9 +1148,11 @@ static ssize_t cpu_show_common(struct device *dev, struct device_attribute *attr
+ 		return sprintf(buf, "Mitigation: __user pointer sanitization\n");
+ 
+ 	case X86_BUG_SPECTRE_V2:
+-		return sprintf(buf, "%s%s%s%s\n", spectre_v2_strings[spectre_v2_enabled],
+-			       boot_cpu_has(X86_FEATURE_USE_IBPB) ? ", IBPB" : "",
++		return sprintf(buf, "%s%s%s%s%s%s\n", spectre_v2_strings[spectre_v2_enabled],
++			       ibpb_state(),
+ 			       boot_cpu_has(X86_FEATURE_USE_IBRS_FW) ? ", IBRS_FW" : "",
++			       stibp_state(),
++			       boot_cpu_has(X86_FEATURE_RSB_CTXSW) ? ", RSB filling" : "",
+ 			       spectre_v2_module_string());
+ 
+ 	case X86_BUG_SPEC_STORE_BYPASS:
+@@ -731,9 +1160,12 @@ static ssize_t cpu_show_common(struct device *dev, struct device_attribute *attr
+ 
+ 	case X86_BUG_L1TF:
+ 		if (boot_cpu_has(X86_FEATURE_L1TF_PTEINV))
+-			return sprintf(buf, "Mitigation: Page Table Inversion\n");
++			return sprintf(buf, "Mitigation: PTE Inversion\n");
+ 		break;
+ 
++	case X86_BUG_MDS:
++		return mds_show_state(buf);
++
+ 	default:
+ 		break;
+ 	}
+@@ -765,4 +1197,9 @@ ssize_t cpu_show_l1tf(struct device *dev, struct device_attribute *attr, char *b
+ {
+ 	return cpu_show_common(dev, attr, buf, X86_BUG_L1TF);
+ }
++
++ssize_t cpu_show_mds(struct device *dev, struct device_attribute *attr, char *buf)
++{
++	return cpu_show_common(dev, attr, buf, X86_BUG_MDS);
++}
+ #endif
+diff --git a/arch/x86/kernel/cpu/common.c b/arch/x86/kernel/cpu/common.c
+index e8b46f575306..4bce77bc7e61 100644
+--- a/arch/x86/kernel/cpu/common.c
++++ b/arch/x86/kernel/cpu/common.c
+@@ -709,6 +709,12 @@ static void init_speculation_control(struct cpuinfo_x86 *c)
+ 		set_cpu_cap(c, X86_FEATURE_STIBP);
+ 		set_cpu_cap(c, X86_FEATURE_MSR_SPEC_CTRL);
+ 	}
++
++	if (cpu_has(c, X86_FEATURE_AMD_SSBD)) {
++		set_cpu_cap(c, X86_FEATURE_SSBD);
++		set_cpu_cap(c, X86_FEATURE_MSR_SPEC_CTRL);
++		clear_cpu_cap(c, X86_FEATURE_VIRT_SSBD);
++	}
+ }
+ 
+ void get_cpu_cap(struct cpuinfo_x86 *c)
+@@ -841,81 +847,95 @@ static void identify_cpu_without_cpuid(struct cpuinfo_x86 *c)
+ #endif
+ }
+ 
+-static const __initconst struct x86_cpu_id cpu_no_speculation[] = {
+-	{ X86_VENDOR_INTEL,	6, INTEL_FAM6_ATOM_CEDARVIEW,	X86_FEATURE_ANY },
+-	{ X86_VENDOR_INTEL,	6, INTEL_FAM6_ATOM_CLOVERVIEW,	X86_FEATURE_ANY },
+-	{ X86_VENDOR_INTEL,	6, INTEL_FAM6_ATOM_LINCROFT,	X86_FEATURE_ANY },
+-	{ X86_VENDOR_INTEL,	6, INTEL_FAM6_ATOM_PENWELL,	X86_FEATURE_ANY },
+-	{ X86_VENDOR_INTEL,	6, INTEL_FAM6_ATOM_PINEVIEW,	X86_FEATURE_ANY },
+-	{ X86_VENDOR_CENTAUR,	5 },
+-	{ X86_VENDOR_INTEL,	5 },
+-	{ X86_VENDOR_NSC,	5 },
+-	{ X86_VENDOR_ANY,	4 },
++#define NO_SPECULATION	BIT(0)
++#define NO_MELTDOWN	BIT(1)
++#define NO_SSB		BIT(2)
++#define NO_L1TF		BIT(3)
++#define NO_MDS		BIT(4)
++#define MSBDS_ONLY	BIT(5)
++
++#define VULNWL(_vendor, _family, _model, _whitelist)	\
++	{ X86_VENDOR_##_vendor, _family, _model, X86_FEATURE_ANY, _whitelist }
++
++#define VULNWL_INTEL(model, whitelist)		\
++	VULNWL(INTEL, 6, INTEL_FAM6_##model, whitelist)
++
++#define VULNWL_AMD(family, whitelist)		\
++	VULNWL(AMD, family, X86_MODEL_ANY, whitelist)
++
++static const __initconst struct x86_cpu_id cpu_vuln_whitelist[] = {
++	VULNWL(ANY,	4, X86_MODEL_ANY,	NO_SPECULATION),
++	VULNWL(CENTAUR,	5, X86_MODEL_ANY,	NO_SPECULATION),
++	VULNWL(INTEL,	5, X86_MODEL_ANY,	NO_SPECULATION),
++	VULNWL(NSC,	5, X86_MODEL_ANY,	NO_SPECULATION),
++
++	/* Intel Family 6 */
++	VULNWL_INTEL(ATOM_SALTWELL,		NO_SPECULATION),
++	VULNWL_INTEL(ATOM_SALTWELL_TABLET,	NO_SPECULATION),
++	VULNWL_INTEL(ATOM_SALTWELL_MID,		NO_SPECULATION),
++	VULNWL_INTEL(ATOM_BONNELL,		NO_SPECULATION),
++	VULNWL_INTEL(ATOM_BONNELL_MID,		NO_SPECULATION),
++
++	VULNWL_INTEL(ATOM_SILVERMONT,		NO_SSB | NO_L1TF | MSBDS_ONLY),
++	VULNWL_INTEL(ATOM_SILVERMONT_X,		NO_SSB | NO_L1TF | MSBDS_ONLY),
++	VULNWL_INTEL(ATOM_SILVERMONT_MID,	NO_SSB | NO_L1TF | MSBDS_ONLY),
++	VULNWL_INTEL(ATOM_AIRMONT,		NO_SSB | NO_L1TF | MSBDS_ONLY),
++	VULNWL_INTEL(XEON_PHI_KNL,		NO_SSB | NO_L1TF | MSBDS_ONLY),
++	VULNWL_INTEL(XEON_PHI_KNM,		NO_SSB | NO_L1TF | MSBDS_ONLY),
++
++	VULNWL_INTEL(CORE_YONAH,		NO_SSB),
++
++	VULNWL_INTEL(ATOM_AIRMONT_MID,		NO_L1TF | MSBDS_ONLY),
++
++	VULNWL_INTEL(ATOM_GOLDMONT,		NO_MDS | NO_L1TF),
++	VULNWL_INTEL(ATOM_GOLDMONT_X,		NO_MDS | NO_L1TF),
++	VULNWL_INTEL(ATOM_GOLDMONT_PLUS,	NO_MDS | NO_L1TF),
++
++	/* AMD Family 0xf - 0x12 */
++	VULNWL_AMD(0x0f,	NO_MELTDOWN | NO_SSB | NO_L1TF | NO_MDS),
++	VULNWL_AMD(0x10,	NO_MELTDOWN | NO_SSB | NO_L1TF | NO_MDS),
++	VULNWL_AMD(0x11,	NO_MELTDOWN | NO_SSB | NO_L1TF | NO_MDS),
++	VULNWL_AMD(0x12,	NO_MELTDOWN | NO_SSB | NO_L1TF | NO_MDS),
++
++	/* FAMILY_ANY must be last, otherwise 0x0f - 0x12 matches won't work */
++	VULNWL_AMD(X86_FAMILY_ANY,	NO_MELTDOWN | NO_L1TF | NO_MDS),
+ 	{}
+ };
+ 
+-static const __initconst struct x86_cpu_id cpu_no_meltdown[] = {
+-	{ X86_VENDOR_AMD },
+-	{}
+-};
+-
+-static const __initconst struct x86_cpu_id cpu_no_spec_store_bypass[] = {
+-	{ X86_VENDOR_INTEL,	6,	INTEL_FAM6_ATOM_PINEVIEW	},
+-	{ X86_VENDOR_INTEL,	6,	INTEL_FAM6_ATOM_LINCROFT	},
+-	{ X86_VENDOR_INTEL,	6,	INTEL_FAM6_ATOM_PENWELL		},
+-	{ X86_VENDOR_INTEL,	6,	INTEL_FAM6_ATOM_CLOVERVIEW	},
+-	{ X86_VENDOR_INTEL,	6,	INTEL_FAM6_ATOM_CEDARVIEW	},
+-	{ X86_VENDOR_INTEL,	6,	INTEL_FAM6_ATOM_SILVERMONT1	},
+-	{ X86_VENDOR_INTEL,	6,	INTEL_FAM6_ATOM_AIRMONT		},
+-	{ X86_VENDOR_INTEL,	6,	INTEL_FAM6_ATOM_SILVERMONT2	},
+-	{ X86_VENDOR_INTEL,	6,	INTEL_FAM6_ATOM_MERRIFIELD	},
+-	{ X86_VENDOR_INTEL,	6,	INTEL_FAM6_CORE_YONAH		},
+-	{ X86_VENDOR_INTEL,	6,	INTEL_FAM6_XEON_PHI_KNL		},
+-	{ X86_VENDOR_INTEL,	6,	INTEL_FAM6_XEON_PHI_KNM		},
+-	{ X86_VENDOR_CENTAUR,	5,					},
+-	{ X86_VENDOR_INTEL,	5,					},
+-	{ X86_VENDOR_NSC,	5,					},
+-	{ X86_VENDOR_AMD,	0x12,					},
+-	{ X86_VENDOR_AMD,	0x11,					},
+-	{ X86_VENDOR_AMD,	0x10,					},
+-	{ X86_VENDOR_AMD,	0xf,					},
+-	{ X86_VENDOR_ANY,	4,					},
+-	{}
+-};
++static bool __init cpu_matches(unsigned long which)
++{
++	const struct x86_cpu_id *m = x86_match_cpu(cpu_vuln_whitelist);
+ 
+-static const __initconst struct x86_cpu_id cpu_no_l1tf[] = {
+-	/* in addition to cpu_no_speculation */
+-	{ X86_VENDOR_INTEL,	6,	INTEL_FAM6_ATOM_SILVERMONT1	},
+-	{ X86_VENDOR_INTEL,	6,	INTEL_FAM6_ATOM_SILVERMONT2	},
+-	{ X86_VENDOR_INTEL,	6,	INTEL_FAM6_ATOM_AIRMONT		},
+-	{ X86_VENDOR_INTEL,	6,	INTEL_FAM6_ATOM_MERRIFIELD	},
+-	{ X86_VENDOR_INTEL,	6,	INTEL_FAM6_ATOM_MOOREFIELD	},
+-	{ X86_VENDOR_INTEL,	6,	INTEL_FAM6_ATOM_GOLDMONT	},
+-	{ X86_VENDOR_INTEL,	6,	INTEL_FAM6_ATOM_DENVERTON	},
+-	{ X86_VENDOR_INTEL,	6,	INTEL_FAM6_ATOM_GEMINI_LAKE	},
+-	{ X86_VENDOR_INTEL,	6,	INTEL_FAM6_XEON_PHI_KNL		},
+-	{ X86_VENDOR_INTEL,	6,	INTEL_FAM6_XEON_PHI_KNM		},
+-	{}
+-};
++	return m && !!(m->driver_data & which);
++}
+ 
+ static void __init cpu_set_bug_bits(struct cpuinfo_x86 *c)
+ {
+ 	u64 ia32_cap = 0;
+ 
++	if (cpu_matches(NO_SPECULATION))
++		return;
++
++	setup_force_cpu_bug(X86_BUG_SPECTRE_V1);
++	setup_force_cpu_bug(X86_BUG_SPECTRE_V2);
++
+ 	if (cpu_has(c, X86_FEATURE_ARCH_CAPABILITIES))
+ 		rdmsrl(MSR_IA32_ARCH_CAPABILITIES, ia32_cap);
+ 
+-	if (!x86_match_cpu(cpu_no_spec_store_bypass) &&
+-	   !(ia32_cap & ARCH_CAP_SSB_NO))
++	if (!cpu_matches(NO_SSB) && !(ia32_cap & ARCH_CAP_SSB_NO) &&
++	   !cpu_has(c, X86_FEATURE_AMD_SSB_NO))
+ 		setup_force_cpu_bug(X86_BUG_SPEC_STORE_BYPASS);
+ 
+-	if (x86_match_cpu(cpu_no_speculation))
+-		return;
++	if (ia32_cap & ARCH_CAP_IBRS_ALL)
++		setup_force_cpu_cap(X86_FEATURE_IBRS_ENHANCED);
+ 
+-	setup_force_cpu_bug(X86_BUG_SPECTRE_V1);
+-	setup_force_cpu_bug(X86_BUG_SPECTRE_V2);
++	if (!cpu_matches(NO_MDS) && !(ia32_cap & ARCH_CAP_MDS_NO)) {
++		setup_force_cpu_bug(X86_BUG_MDS);
++		if (cpu_matches(MSBDS_ONLY))
++			setup_force_cpu_bug(X86_BUG_MSBDS_ONLY);
++	}
+ 
+-	if (x86_match_cpu(cpu_no_meltdown))
++	if (cpu_matches(NO_MELTDOWN))
+ 		return;
+ 
+ 	/* Rogue Data Cache Load? No! */
+@@ -924,7 +944,7 @@ static void __init cpu_set_bug_bits(struct cpuinfo_x86 *c)
+ 
+ 	setup_force_cpu_bug(X86_BUG_CPU_MELTDOWN);
+ 
+-	if (x86_match_cpu(cpu_no_l1tf))
++	if (cpu_matches(NO_L1TF))
+ 		return;
+ 
+ 	setup_force_cpu_bug(X86_BUG_L1TF);
+diff --git a/arch/x86/kernel/cpu/intel.c b/arch/x86/kernel/cpu/intel.c
+index b18fe3d245fe..b0e0c7a12e61 100644
+--- a/arch/x86/kernel/cpu/intel.c
++++ b/arch/x86/kernel/cpu/intel.c
+@@ -14,6 +14,7 @@
+ #include <asm/bugs.h>
+ #include <asm/cpu.h>
+ #include <asm/intel-family.h>
++#include <asm/microcode_intel.h>
+ 
+ #ifdef CONFIG_X86_64
+ #include <linux/topology.h>
+@@ -102,14 +103,8 @@ static void early_init_intel(struct cpuinfo_x86 *c)
+ 		(c->x86 == 0x6 && c->x86_model >= 0x0e))
+ 		set_cpu_cap(c, X86_FEATURE_CONSTANT_TSC);
+ 
+-	if (c->x86 >= 6 && !cpu_has(c, X86_FEATURE_IA64)) {
+-		unsigned lower_word;
+-
+-		wrmsr(MSR_IA32_UCODE_REV, 0, 0);
+-		/* Required by the SDM */
+-		sync_core();
+-		rdmsr(MSR_IA32_UCODE_REV, lower_word, c->microcode);
+-	}
++	if (c->x86 >= 6 && !cpu_has(c, X86_FEATURE_IA64))
++		c->microcode = intel_get_microcode_revision();
+ 
+ 	/* Now if any of them are set, check the blacklist and clear the lot */
+ 	if ((cpu_has(c, X86_FEATURE_SPEC_CTRL) ||
+diff --git a/arch/x86/kernel/cpu/mcheck/mce-severity.c b/arch/x86/kernel/cpu/mcheck/mce-severity.c
+index 9c682c222071..1ce85ba50005 100644
+--- a/arch/x86/kernel/cpu/mcheck/mce-severity.c
++++ b/arch/x86/kernel/cpu/mcheck/mce-severity.c
+@@ -132,6 +132,11 @@ static struct severity {
+ 		SER, MASK(MCI_STATUS_OVER|MCI_UC_SAR|MCI_ADDR|MCACOD, MCI_UC_SAR|MCI_ADDR|MCACOD_INSTR),
+ 		USER
+ 		),
++	MCESEV(
++		PANIC, "Instruction fetch error in kernel",
++		SER, MASK(MCI_STATUS_OVER|MCI_UC_SAR|MCI_ADDR|MCACOD, MCI_UC_SAR|MCI_ADDR|MCACOD_INSTR),
++		KERNEL
++		),
+ #endif
+ 	MCESEV(
+ 		PANIC, "Action required: unknown MCACOD",
+diff --git a/arch/x86/kernel/cpu/mcheck/mce.c b/arch/x86/kernel/cpu/mcheck/mce.c
+index 77f7580e22c6..4b9cfdcc3aaa 100644
+--- a/arch/x86/kernel/cpu/mcheck/mce.c
++++ b/arch/x86/kernel/cpu/mcheck/mce.c
+@@ -138,6 +138,8 @@ void mce_setup(struct mce *m)
+ 	m->socketid = cpu_data(m->extcpu).phys_proc_id;
+ 	m->apicid = cpu_data(m->extcpu).initial_apicid;
+ 	rdmsrl(MSR_IA32_MCG_CAP, m->mcgcap);
++
++	m->microcode = boot_cpu_data.microcode;
+ }
+ 
+ DEFINE_PER_CPU(struct mce, injectm);
+@@ -258,7 +260,7 @@ static void print_mce(struct mce *m)
+ 	 */
+ 	pr_emerg(HW_ERR "PROCESSOR %u:%x TIME %llu SOCKET %u APIC %x microcode %x\n",
+ 		m->cpuvendor, m->cpuid, m->time, m->socketid, m->apicid,
+-		cpu_data(m->extcpu).microcode);
++		m->microcode);
+ 
+ 	/*
+ 	 * Print out human-readable details about the MCE error,
+diff --git a/arch/x86/kernel/cpu/microcode/amd.c b/arch/x86/kernel/cpu/microcode/amd.c
+index 6da6f9cd6d2d..ca5b45799264 100644
+--- a/arch/x86/kernel/cpu/microcode/amd.c
++++ b/arch/x86/kernel/cpu/microcode/amd.c
+@@ -695,22 +695,26 @@ int apply_microcode_amd(int cpu)
+ 		return -1;
+ 
+ 	/* need to apply patch? */
+-	if (rev >= mc_amd->hdr.patch_id) {
+-		c->microcode = rev;
+-		uci->cpu_sig.rev = rev;
+-		return 0;
+-	}
++	if (rev >= mc_amd->hdr.patch_id)
++		goto out;
+ 
+ 	if (__apply_microcode_amd(mc_amd)) {
+ 		pr_err("CPU%d: update failed for patch_level=0x%08x\n",
+ 			cpu, mc_amd->hdr.patch_id);
+ 		return -1;
+ 	}
+-	pr_info("CPU%d: new patch_level=0x%08x\n", cpu,
+-		mc_amd->hdr.patch_id);
+ 
+-	uci->cpu_sig.rev = mc_amd->hdr.patch_id;
+-	c->microcode = mc_amd->hdr.patch_id;
++	rev = mc_amd->hdr.patch_id;
++
++	pr_info("CPU%d: new patch_level=0x%08x\n", cpu, rev);
++
++out:
++	uci->cpu_sig.rev = rev;
++	c->microcode	 = rev;
++
++	/* Update boot_cpu_data's revision too, if we're on the BSP: */
++	if (c->cpu_index == boot_cpu_data.cpu_index)
++		boot_cpu_data.microcode = rev;
+ 
+ 	return 0;
+ }
+diff --git a/arch/x86/kernel/cpu/microcode/intel.c b/arch/x86/kernel/cpu/microcode/intel.c
+index 2f38a99cdb98..afaf648386e9 100644
+--- a/arch/x86/kernel/cpu/microcode/intel.c
++++ b/arch/x86/kernel/cpu/microcode/intel.c
+@@ -376,15 +376,8 @@ static int collect_cpu_info_early(struct ucode_cpu_info *uci)
+ 		native_rdmsr(MSR_IA32_PLATFORM_ID, val[0], val[1]);
+ 		csig.pf = 1 << ((val[1] >> 18) & 7);
+ 	}
+-	native_wrmsr(MSR_IA32_UCODE_REV, 0, 0);
+ 
+-	/* As documented in the SDM: Do a CPUID 1 here */
+-	sync_core();
+-
+-	/* get the current revision from MSR 0x8B */
+-	native_rdmsr(MSR_IA32_UCODE_REV, val[0], val[1]);
+-
+-	csig.rev = val[1];
++	csig.rev = intel_get_microcode_revision();
+ 
+ 	uci->cpu_sig = csig;
+ 	uci->valid = 1;
+@@ -654,31 +647,37 @@ static inline void print_ucode(struct ucode_cpu_info *uci)
+ static int apply_microcode_early(struct ucode_cpu_info *uci, bool early)
+ {
+ 	struct microcode_intel *mc_intel;
+-	unsigned int val[2];
++	u32 rev;
+ 
+ 	mc_intel = uci->mc;
+ 	if (mc_intel == NULL)
+ 		return 0;
+ 
++	/*
++	 * Save us the MSR write below - which is a particular expensive
++	 * operation - when the other hyperthread has updated the microcode
++	 * already.
++	 */
++	rev = intel_get_microcode_revision();
++	if (rev >= mc_intel->hdr.rev) {
++		uci->cpu_sig.rev = rev;
++		return 0;
++	}
++
+ 	/* write microcode via MSR 0x79 */
+ 	native_wrmsr(MSR_IA32_UCODE_WRITE,
+ 	      (unsigned long) mc_intel->bits,
+ 	      (unsigned long) mc_intel->bits >> 16 >> 16);
+-	native_wrmsr(MSR_IA32_UCODE_REV, 0, 0);
+-
+-	/* As documented in the SDM: Do a CPUID 1 here */
+-	sync_core();
+ 
+-	/* get the current revision from MSR 0x8B */
+-	native_rdmsr(MSR_IA32_UCODE_REV, val[0], val[1]);
+-	if (val[1] != mc_intel->hdr.rev)
++	rev = intel_get_microcode_revision();
++	if (rev != mc_intel->hdr.rev)
+ 		return -1;
+ 
+ #ifdef CONFIG_X86_64
+ 	/* Flush global tlb. This is precaution. */
+ 	flush_tlb_early();
+ #endif
+-	uci->cpu_sig.rev = val[1];
++	uci->cpu_sig.rev = rev;
+ 
+ 	if (early)
+ 		print_ucode(uci);
+@@ -852,7 +851,7 @@ static int apply_microcode_intel(int cpu)
+ {
+ 	struct microcode_intel *mc_intel;
+ 	struct ucode_cpu_info *uci;
+-	unsigned int val[2];
++	u32 rev;
+ 	int cpu_num = raw_smp_processor_id();
+ 	struct cpuinfo_x86 *c = &cpu_data(cpu_num);
+ 
+@@ -873,31 +872,40 @@ static int apply_microcode_intel(int cpu)
+ 	if (get_matching_mc(mc_intel, cpu) == 0)
+ 		return 0;
+ 
++	/*
++	 * Save us the MSR write below - which is a particular expensive
++	 * operation - when the other hyperthread has updated the microcode
++	 * already.
++	 */
++	rev = intel_get_microcode_revision();
++	if (rev >= mc_intel->hdr.rev)
++		goto out;
++
+ 	/* write microcode via MSR 0x79 */
+ 	wrmsr(MSR_IA32_UCODE_WRITE,
+ 	      (unsigned long) mc_intel->bits,
+ 	      (unsigned long) mc_intel->bits >> 16 >> 16);
+-	wrmsr(MSR_IA32_UCODE_REV, 0, 0);
+-
+-	/* As documented in the SDM: Do a CPUID 1 here */
+-	sync_core();
+ 
+-	/* get the current revision from MSR 0x8B */
+-	rdmsr(MSR_IA32_UCODE_REV, val[0], val[1]);
++	rev = intel_get_microcode_revision();
+ 
+-	if (val[1] != mc_intel->hdr.rev) {
++	if (rev != mc_intel->hdr.rev) {
+ 		pr_err("CPU%d update to revision 0x%x failed\n",
+ 		       cpu_num, mc_intel->hdr.rev);
+ 		return -1;
+ 	}
+ 	pr_info("CPU%d updated to revision 0x%x, date = %04x-%02x-%02x\n",
+-		cpu_num, val[1],
++		cpu_num, rev,
+ 		mc_intel->hdr.date & 0xffff,
+ 		mc_intel->hdr.date >> 24,
+ 		(mc_intel->hdr.date >> 16) & 0xff);
+ 
+-	uci->cpu_sig.rev = val[1];
+-	c->microcode = val[1];
++out:
++	uci->cpu_sig.rev = rev;
++	c->microcode	 = rev;
++
++	/* Update boot_cpu_data's revision too, if we're on the BSP: */
++	if (c->cpu_index == boot_cpu_data.cpu_index)
++		boot_cpu_data.microcode = rev;
+ 
+ 	return 0;
+ }
+diff --git a/arch/x86/kernel/cpu/perf_event_intel.c b/arch/x86/kernel/cpu/perf_event_intel.c
+index 7b79c80ce029..325ed90511cf 100644
+--- a/arch/x86/kernel/cpu/perf_event_intel.c
++++ b/arch/x86/kernel/cpu/perf_event_intel.c
+@@ -2513,7 +2513,7 @@ static int intel_pmu_hw_config(struct perf_event *event)
+ 		return ret;
+ 
+ 	if (event->attr.precise_ip) {
+-		if (!event->attr.freq) {
++		if (!(event->attr.freq || event->attr.wakeup_events)) {
+ 			event->hw.flags |= PERF_X86_EVENT_AUTO_RELOAD;
+ 			if (!(event->attr.sample_type &
+ 			      ~intel_pmu_free_running_flags(event)))
+diff --git a/arch/x86/kernel/nmi.c b/arch/x86/kernel/nmi.c
+index 697f90db0e37..a4df15f3878e 100644
+--- a/arch/x86/kernel/nmi.c
++++ b/arch/x86/kernel/nmi.c
+@@ -29,6 +29,7 @@
+ #include <asm/mach_traps.h>
+ #include <asm/nmi.h>
+ #include <asm/x86_init.h>
++#include <asm/nospec-branch.h>
+ 
+ #define CREATE_TRACE_POINTS
+ #include <trace/events/nmi.h>
+@@ -522,6 +523,9 @@ nmi_restart:
+ 		write_cr2(this_cpu_read(nmi_cr2));
+ 	if (this_cpu_dec_return(nmi_state))
+ 		goto nmi_restart;
++
++	if (user_mode(regs))
++		mds_user_clear_cpu_buffers();
+ }
+ NOKPROBE_SYMBOL(do_nmi);
+ 
+diff --git a/arch/x86/kernel/process.c b/arch/x86/kernel/process.c
+index e18c8798c3a2..64090c943f05 100644
+--- a/arch/x86/kernel/process.c
++++ b/arch/x86/kernel/process.c
+@@ -33,6 +33,8 @@
+ #include <asm/vm86.h>
+ #include <asm/spec-ctrl.h>
+ 
++#include "process.h"
++
+ /*
+  * per-CPU TSS segments. Threads are completely 'soft' on Linux,
+  * no more per-task TSS's. The TSS size is kept cacheline-aligned
+@@ -179,11 +181,12 @@ int set_tsc_mode(unsigned int val)
+ 	return 0;
+ }
+ 
+-static inline void switch_to_bitmap(struct tss_struct *tss,
+-				    struct thread_struct *prev,
++static inline void switch_to_bitmap(struct thread_struct *prev,
+ 				    struct thread_struct *next,
+ 				    unsigned long tifp, unsigned long tifn)
+ {
++	struct tss_struct *tss = this_cpu_ptr(&cpu_tss);
++
+ 	if (tifn & _TIF_IO_BITMAP) {
+ 		/*
+ 		 * Copy the relevant range of the IO bitmap.
+@@ -317,32 +320,85 @@ static __always_inline void amd_set_ssb_virt_state(unsigned long tifn)
+ 	wrmsrl(MSR_AMD64_VIRT_SPEC_CTRL, ssbd_tif_to_spec_ctrl(tifn));
+ }
+ 
+-static __always_inline void intel_set_ssb_state(unsigned long tifn)
++/*
++ * Update the MSRs managing speculation control, during context switch.
++ *
++ * tifp: Previous task's thread flags
++ * tifn: Next task's thread flags
++ */
++static __always_inline void __speculation_ctrl_update(unsigned long tifp,
++						      unsigned long tifn)
+ {
+-	u64 msr = x86_spec_ctrl_base | ssbd_tif_to_spec_ctrl(tifn);
++	unsigned long tif_diff = tifp ^ tifn;
++	u64 msr = x86_spec_ctrl_base;
++	bool updmsr = false;
++
++	/*
++	 * If TIF_SSBD is different, select the proper mitigation
++	 * method. Note that if SSBD mitigation is disabled or permanentely
++	 * enabled this branch can't be taken because nothing can set
++	 * TIF_SSBD.
++	 */
++	if (tif_diff & _TIF_SSBD) {
++		if (static_cpu_has(X86_FEATURE_VIRT_SSBD)) {
++			amd_set_ssb_virt_state(tifn);
++		} else if (static_cpu_has(X86_FEATURE_LS_CFG_SSBD)) {
++			amd_set_core_ssb_state(tifn);
++		} else if (static_cpu_has(X86_FEATURE_SPEC_CTRL_SSBD) ||
++			   static_cpu_has(X86_FEATURE_AMD_SSBD)) {
++			msr |= ssbd_tif_to_spec_ctrl(tifn);
++			updmsr  = true;
++		}
++	}
++
++	/*
++	 * Only evaluate TIF_SPEC_IB if conditional STIBP is enabled,
++	 * otherwise avoid the MSR write.
++	 */
++	if (IS_ENABLED(CONFIG_SMP) &&
++	    static_branch_unlikely(&switch_to_cond_stibp)) {
++		updmsr |= !!(tif_diff & _TIF_SPEC_IB);
++		msr |= stibp_tif_to_spec_ctrl(tifn);
++	}
+ 
+-	wrmsrl(MSR_IA32_SPEC_CTRL, msr);
++	if (updmsr)
++		wrmsrl(MSR_IA32_SPEC_CTRL, msr);
+ }
+ 
+-static __always_inline void __speculative_store_bypass_update(unsigned long tifn)
++static unsigned long speculation_ctrl_update_tif(struct task_struct *tsk)
+ {
+-	if (static_cpu_has(X86_FEATURE_VIRT_SSBD))
+-		amd_set_ssb_virt_state(tifn);
+-	else if (static_cpu_has(X86_FEATURE_LS_CFG_SSBD))
+-		amd_set_core_ssb_state(tifn);
+-	else
+-		intel_set_ssb_state(tifn);
++	if (test_and_clear_tsk_thread_flag(tsk, TIF_SPEC_FORCE_UPDATE)) {
++		if (task_spec_ssb_disable(tsk))
++			set_tsk_thread_flag(tsk, TIF_SSBD);
++		else
++			clear_tsk_thread_flag(tsk, TIF_SSBD);
++
++		if (task_spec_ib_disable(tsk))
++			set_tsk_thread_flag(tsk, TIF_SPEC_IB);
++		else
++			clear_tsk_thread_flag(tsk, TIF_SPEC_IB);
++	}
++	/* Return the updated threadinfo flags*/
++	return task_thread_info(tsk)->flags;
+ }
+ 
+-void speculative_store_bypass_update(unsigned long tif)
++void speculation_ctrl_update(unsigned long tif)
+ {
++	/* Forced update. Make sure all relevant TIF flags are different */
+ 	preempt_disable();
+-	__speculative_store_bypass_update(tif);
++	__speculation_ctrl_update(~tif, tif);
+ 	preempt_enable();
+ }
+ 
+-void __switch_to_xtra(struct task_struct *prev_p, struct task_struct *next_p,
+-		      struct tss_struct *tss)
++/* Called from seccomp/prctl update */
++void speculation_ctrl_update_current(void)
++{
++	preempt_disable();
++	speculation_ctrl_update(speculation_ctrl_update_tif(current));
++	preempt_enable();
++}
++
++void __switch_to_xtra(struct task_struct *prev_p, struct task_struct *next_p)
+ {
+ 	struct thread_struct *prev, *next;
+ 	unsigned long tifp, tifn;
+@@ -352,7 +408,7 @@ void __switch_to_xtra(struct task_struct *prev_p, struct task_struct *next_p,
+ 
+ 	tifn = READ_ONCE(task_thread_info(next_p)->flags);
+ 	tifp = READ_ONCE(task_thread_info(prev_p)->flags);
+-	switch_to_bitmap(tss, prev, next, tifp, tifn);
++	switch_to_bitmap(prev, next, tifp, tifn);
+ 
+ 	propagate_user_return_notify(prev_p, next_p);
+ 
+@@ -370,8 +426,15 @@ void __switch_to_xtra(struct task_struct *prev_p, struct task_struct *next_p,
+ 	if ((tifp ^ tifn) & _TIF_NOTSC)
+ 		cr4_toggle_bits(X86_CR4_TSD);
+ 
+-	if ((tifp ^ tifn) & _TIF_SSBD)
+-		__speculative_store_bypass_update(tifn);
++	if (likely(!((tifp | tifn) & _TIF_SPEC_FORCE_UPDATE))) {
++		__speculation_ctrl_update(tifp, tifn);
++	} else {
++		speculation_ctrl_update_tif(prev_p);
++		tifn = speculation_ctrl_update_tif(next_p);
++
++		/* Enforce MSR update to ensure consistent state */
++		__speculation_ctrl_update(~tifn, tifn);
++	}
+ }
+ 
+ /*
+diff --git a/arch/x86/kernel/process.h b/arch/x86/kernel/process.h
+new file mode 100644
+index 000000000000..898e97cf6629
+--- /dev/null
++++ b/arch/x86/kernel/process.h
+@@ -0,0 +1,39 @@
++// SPDX-License-Identifier: GPL-2.0
++//
++// Code shared between 32 and 64 bit
++
++#include <asm/spec-ctrl.h>
++
++void __switch_to_xtra(struct task_struct *prev_p, struct task_struct *next_p);
++
++/*
++ * This needs to be inline to optimize for the common case where no extra
++ * work needs to be done.
++ */
++static inline void switch_to_extra(struct task_struct *prev,
++				   struct task_struct *next)
++{
++	unsigned long next_tif = task_thread_info(next)->flags;
++	unsigned long prev_tif = task_thread_info(prev)->flags;
++
++	if (IS_ENABLED(CONFIG_SMP)) {
++		/*
++		 * Avoid __switch_to_xtra() invocation when conditional
++		 * STIPB is disabled and the only different bit is
++		 * TIF_SPEC_IB. For CONFIG_SMP=n TIF_SPEC_IB is not
++		 * in the TIF_WORK_CTXSW masks.
++		 */
++		if (!static_branch_likely(&switch_to_cond_stibp)) {
++			prev_tif &= ~_TIF_SPEC_IB;
++			next_tif &= ~_TIF_SPEC_IB;
++		}
++	}
++
++	/*
++	 * __switch_to_xtra() handles debug registers, i/o bitmaps,
++	 * speculation mitigations etc.
++	 */
++	if (unlikely(next_tif & _TIF_WORK_CTXSW_NEXT ||
++		     prev_tif & _TIF_WORK_CTXSW_PREV))
++		__switch_to_xtra(prev, next);
++}
+diff --git a/arch/x86/kernel/process_32.c b/arch/x86/kernel/process_32.c
+index 9f950917528b..85b112efac30 100644
+--- a/arch/x86/kernel/process_32.c
++++ b/arch/x86/kernel/process_32.c
+@@ -55,6 +55,8 @@
+ #include <asm/switch_to.h>
+ #include <asm/vm86.h>
+ 
++#include "process.h"
++
+ asmlinkage void ret_from_fork(void) __asm__("ret_from_fork");
+ asmlinkage void ret_from_kernel_thread(void) __asm__("ret_from_kernel_thread");
+ 
+@@ -279,12 +281,7 @@ __switch_to(struct task_struct *prev_p, struct task_struct *next_p)
+ 	if (get_kernel_rpl() && unlikely(prev->iopl != next->iopl))
+ 		set_iopl_mask(next->iopl);
+ 
+-	/*
+-	 * Now maybe handle debug registers and/or IO bitmaps
+-	 */
+-	if (unlikely(task_thread_info(prev_p)->flags & _TIF_WORK_CTXSW_PREV ||
+-		     task_thread_info(next_p)->flags & _TIF_WORK_CTXSW_NEXT))
+-		__switch_to_xtra(prev_p, next_p, tss);
++	switch_to_extra(prev_p, next_p);
+ 
+ 	/*
+ 	 * Leave lazy mode, flushing any hypercalls made here.
+diff --git a/arch/x86/kernel/process_64.c b/arch/x86/kernel/process_64.c
+index c7cc81e9bb84..618565fecb1c 100644
+--- a/arch/x86/kernel/process_64.c
++++ b/arch/x86/kernel/process_64.c
+@@ -50,6 +50,8 @@
+ #include <asm/switch_to.h>
+ #include <asm/xen/hypervisor.h>
+ 
++#include "process.h"
++
+ asmlinkage extern void ret_from_fork(void);
+ 
+ __visible DEFINE_PER_CPU(unsigned long, rsp_scratch);
+@@ -406,12 +408,7 @@ __switch_to(struct task_struct *prev_p, struct task_struct *next_p)
+ 	/* Reload esp0 and ss1.  This changes current_thread_info(). */
+ 	load_sp0(tss, next);
+ 
+-	/*
+-	 * Now maybe reload the debug registers and handle I/O bitmaps
+-	 */
+-	if (unlikely(task_thread_info(next_p)->flags & _TIF_WORK_CTXSW_NEXT ||
+-		     task_thread_info(prev_p)->flags & _TIF_WORK_CTXSW_PREV))
+-		__switch_to_xtra(prev_p, next_p, tss);
++	switch_to_extra(prev_p, next_p);
+ 
+ #ifdef CONFIG_XEN
+ 	/*
+diff --git a/arch/x86/kernel/traps.c b/arch/x86/kernel/traps.c
+index 8c73bf1492b8..6223929fc621 100644
+--- a/arch/x86/kernel/traps.c
++++ b/arch/x86/kernel/traps.c
+@@ -61,6 +61,7 @@
+ #include <asm/alternative.h>
+ #include <asm/fpu/xstate.h>
+ #include <asm/trace/mpx.h>
++#include <asm/nospec-branch.h>
+ #include <asm/mpx.h>
+ #include <asm/vm86.h>
+ 
+@@ -337,6 +338,13 @@ dotraplinkage void do_double_fault(struct pt_regs *regs, long error_code)
+ 		regs->ip = (unsigned long)general_protection;
+ 		regs->sp = (unsigned long)&normal_regs->orig_ax;
+ 
++		/*
++		 * This situation can be triggered by userspace via
++		 * modify_ldt(2) and the return does not take the regular
++		 * user space exit, so a CPU buffer clear is required when
++		 * MDS mitigation is enabled.
++		 */
++		mds_user_clear_cpu_buffers();
+ 		return;
+ 	}
+ #endif
+diff --git a/arch/x86/kvm/cpuid.c b/arch/x86/kvm/cpuid.c
+index b857bb9f6f23..53918abccbc3 100644
+--- a/arch/x86/kvm/cpuid.c
++++ b/arch/x86/kvm/cpuid.c
+@@ -343,7 +343,8 @@ static inline int __do_cpuid_ent(struct kvm_cpuid_entry2 *entry, u32 function,
+ 
+ 	/* cpuid 0x80000008.ebx */
+ 	const u32 kvm_cpuid_8000_0008_ebx_x86_features =
+-		F(AMD_IBPB) | F(AMD_IBRS) | F(VIRT_SSBD);
++		F(AMD_IBPB) | F(AMD_IBRS) | F(AMD_SSBD) | F(VIRT_SSBD) |
++		F(AMD_SSB_NO) | F(AMD_STIBP);
+ 
+ 	/* cpuid 0xC0000001.edx */
+ 	const u32 kvm_supported_word5_x86_features =
+@@ -364,7 +365,8 @@ static inline int __do_cpuid_ent(struct kvm_cpuid_entry2 *entry, u32 function,
+ 
+ 	/* cpuid 7.0.edx*/
+ 	const u32 kvm_cpuid_7_0_edx_x86_features =
+-		F(SPEC_CTRL) | F(SPEC_CTRL_SSBD) | F(ARCH_CAPABILITIES);
++		F(SPEC_CTRL) | F(SPEC_CTRL_SSBD) | F(ARCH_CAPABILITIES) |
++		F(INTEL_STIBP) | F(MD_CLEAR);
+ 
+ 	/* all calls to cpuid_count() should be made on the same cpu */
+ 	get_cpu();
+@@ -607,7 +609,12 @@ static inline int __do_cpuid_ent(struct kvm_cpuid_entry2 *entry, u32 function,
+ 			entry->ebx |= F(VIRT_SSBD);
+ 		entry->ebx &= kvm_cpuid_8000_0008_ebx_x86_features;
+ 		cpuid_mask(&entry->ebx, CPUID_8000_0008_EBX);
+-		if (boot_cpu_has(X86_FEATURE_LS_CFG_SSBD))
++		/*
++		 * The preference is to use SPEC CTRL MSR instead of the
++		 * VIRT_SPEC MSR.
++		 */
++		if (boot_cpu_has(X86_FEATURE_LS_CFG_SSBD) &&
++		    !boot_cpu_has(X86_FEATURE_AMD_SSBD))
+ 			entry->ebx |= F(VIRT_SSBD);
+ 		break;
+ 	}
+diff --git a/arch/x86/kvm/cpuid.h b/arch/x86/kvm/cpuid.h
+index 72f159f4d456..8c28926dc900 100644
+--- a/arch/x86/kvm/cpuid.h
++++ b/arch/x86/kvm/cpuid.h
+@@ -175,7 +175,7 @@ static inline bool guest_cpuid_has_spec_ctrl(struct kvm_vcpu *vcpu)
+ 	struct kvm_cpuid_entry2 *best;
+ 
+ 	best = kvm_find_cpuid_entry(vcpu, 0x80000008, 0);
+-	if (best && (best->ebx & bit(X86_FEATURE_AMD_IBRS)))
++	if (best && (best->ebx & (bit(X86_FEATURE_AMD_IBRS | bit(X86_FEATURE_AMD_SSBD)))))
+ 		return true;
+ 	best = kvm_find_cpuid_entry(vcpu, 7, 0);
+ 	return best && (best->edx & (bit(X86_FEATURE_SPEC_CTRL) | bit(X86_FEATURE_SPEC_CTRL_SSBD)));
+diff --git a/arch/x86/kvm/svm.c b/arch/x86/kvm/svm.c
+index acbde1249b6f..9fc536657492 100644
+--- a/arch/x86/kvm/svm.c
++++ b/arch/x86/kvm/svm.c
+@@ -3197,7 +3197,7 @@ static int svm_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr)
+ 			return 1;
+ 
+ 		/* The STIBP bit doesn't fault even if it's not advertised */
+-		if (data & ~(SPEC_CTRL_IBRS | SPEC_CTRL_STIBP))
++		if (data & ~(SPEC_CTRL_IBRS | SPEC_CTRL_STIBP | SPEC_CTRL_SSBD))
+ 			return 1;
+ 
+ 		svm->spec_ctrl = data;
+@@ -3928,8 +3928,6 @@ static void svm_vcpu_run(struct kvm_vcpu *vcpu)
+ 
+ 	clgi();
+ 
+-	local_irq_enable();
+-
+ 	/*
+ 	 * If this vCPU has touched SPEC_CTRL, restore the guest's value if
+ 	 * it's non-zero. Since vmentry is serialising on affected CPUs, there
+@@ -3938,6 +3936,8 @@ static void svm_vcpu_run(struct kvm_vcpu *vcpu)
+ 	 */
+ 	x86_spec_ctrl_set_guest(svm->spec_ctrl, svm->virt_spec_ctrl);
+ 
++	local_irq_enable();
++
+ 	asm volatile (
+ 		"push %%" _ASM_BP "; \n\t"
+ 		"mov %c[rbx](%[svm]), %%" _ASM_BX " \n\t"
+@@ -4060,12 +4060,12 @@ static void svm_vcpu_run(struct kvm_vcpu *vcpu)
+ 	if (!msr_write_intercepted(vcpu, MSR_IA32_SPEC_CTRL))
+ 		svm->spec_ctrl = native_read_msr(MSR_IA32_SPEC_CTRL);
+ 
+-	x86_spec_ctrl_restore_host(svm->spec_ctrl, svm->virt_spec_ctrl);
+-
+ 	reload_tss(vcpu);
+ 
+ 	local_irq_disable();
+ 
++	x86_spec_ctrl_restore_host(svm->spec_ctrl, svm->virt_spec_ctrl);
++
+ 	vcpu->arch.cr2 = svm->vmcb->save.cr2;
+ 	vcpu->arch.regs[VCPU_REGS_RAX] = svm->vmcb->save.rax;
+ 	vcpu->arch.regs[VCPU_REGS_RSP] = svm->vmcb->save.rsp;
+diff --git a/arch/x86/kvm/trace.h b/arch/x86/kvm/trace.h
+index ab9ae67a80e4..0ec94c6b4757 100644
+--- a/arch/x86/kvm/trace.h
++++ b/arch/x86/kvm/trace.h
+@@ -434,13 +434,13 @@ TRACE_EVENT(kvm_apic_ipi,
+ );
+ 
+ TRACE_EVENT(kvm_apic_accept_irq,
+-	    TP_PROTO(__u32 apicid, __u16 dm, __u8 tm, __u8 vec),
++	    TP_PROTO(__u32 apicid, __u16 dm, __u16 tm, __u8 vec),
+ 	    TP_ARGS(apicid, dm, tm, vec),
+ 
+ 	TP_STRUCT__entry(
+ 		__field(	__u32,		apicid		)
+ 		__field(	__u16,		dm		)
+-		__field(	__u8,		tm		)
++		__field(	__u16,		tm		)
+ 		__field(	__u8,		vec		)
+ 	),
+ 
+diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
+index 706c5d63a53f..d830a0d60ba4 100644
+--- a/arch/x86/kvm/x86.c
++++ b/arch/x86/kvm/x86.c
+@@ -2972,6 +2972,10 @@ static int kvm_vcpu_ioctl_x86_set_vcpu_events(struct kvm_vcpu *vcpu,
+ 			      | KVM_VCPUEVENT_VALID_SMM))
+ 		return -EINVAL;
+ 
++	if (events->exception.injected &&
++	    (events->exception.nr > 31 || events->exception.nr == NMI_VECTOR))
++		return -EINVAL;
++
+ 	/* INITs are latched while in SMM */
+ 	if (events->flags & KVM_VCPUEVENT_VALID_SMM &&
+ 	    (events->smi.smm || events->smi.pending) &&
+diff --git a/arch/x86/mm/kaiser.c b/arch/x86/mm/kaiser.c
+index 7a72e32e4806..2cbcd6f3317d 100644
+--- a/arch/x86/mm/kaiser.c
++++ b/arch/x86/mm/kaiser.c
+@@ -10,6 +10,7 @@
+ #include <linux/mm.h>
+ #include <linux/uaccess.h>
+ #include <linux/ftrace.h>
++#include <linux/cpu.h>
+ 
+ #undef pr_fmt
+ #define pr_fmt(fmt)     "Kernel/User page tables isolation: " fmt
+@@ -297,7 +298,8 @@ void __init kaiser_check_boottime_disable(void)
+ 			goto skip;
+ 	}
+ 
+-	if (cmdline_find_option_bool(boot_command_line, "nopti"))
++	if (cmdline_find_option_bool(boot_command_line, "nopti") ||
++	    cpu_mitigations_off())
+ 		goto disable;
+ 
+ skip:
+diff --git a/arch/x86/mm/pgtable.c b/arch/x86/mm/pgtable.c
+index 55c7446311a7..50f75768aadd 100644
+--- a/arch/x86/mm/pgtable.c
++++ b/arch/x86/mm/pgtable.c
+@@ -247,7 +247,7 @@ static void pgd_mop_up_pmds(struct mm_struct *mm, pgd_t *pgdp)
+ 		if (pgd_val(pgd) != 0) {
+ 			pmd_t *pmd = (pmd_t *)pgd_page_vaddr(pgd);
+ 
+-			pgdp[i] = native_make_pgd(0);
++			pgd_clear(&pgdp[i]);
+ 
+ 			paravirt_release_pmd(pgd_val(pgd) >> PAGE_SHIFT);
+ 			pmd_free(mm, pmd);
+@@ -424,7 +424,7 @@ int ptep_set_access_flags(struct vm_area_struct *vma,
+ 	int changed = !pte_same(*ptep, entry);
+ 
+ 	if (changed && dirty) {
+-		*ptep = entry;
++		set_pte(ptep, entry);
+ 		pte_update_defer(vma->vm_mm, address, ptep);
+ 	}
+ 
+@@ -441,7 +441,7 @@ int pmdp_set_access_flags(struct vm_area_struct *vma,
+ 	VM_BUG_ON(address & ~HPAGE_PMD_MASK);
+ 
+ 	if (changed && dirty) {
+-		*pmdp = entry;
++		set_pmd(pmdp, entry);
+ 		pmd_update_defer(vma->vm_mm, address, pmdp);
+ 		/*
+ 		 * We had a write-protection fault here and changed the pmd
+diff --git a/arch/x86/mm/tlb.c b/arch/x86/mm/tlb.c
+index 6d683bbb3502..f3237e4cb18f 100644
+--- a/arch/x86/mm/tlb.c
++++ b/arch/x86/mm/tlb.c
+@@ -30,6 +30,12 @@
+  *	Implement flush IPI by CALL_FUNCTION_VECTOR, Alex Shi
+  */
+ 
++/*
++ * Use bit 0 to mangle the TIF_SPEC_IB state into the mm pointer which is
++ * stored in cpu_tlb_state.last_user_mm_ibpb.
++ */
++#define LAST_USER_MM_IBPB	0x1UL
++
+ atomic64_t last_mm_ctx_id = ATOMIC64_INIT(1);
+ 
+ struct flush_tlb_info {
+@@ -101,41 +107,101 @@ void switch_mm(struct mm_struct *prev, struct mm_struct *next,
+ 	local_irq_restore(flags);
+ }
+ 
+-void switch_mm_irqs_off(struct mm_struct *prev, struct mm_struct *next,
+-			struct task_struct *tsk)
++static inline unsigned long mm_mangle_tif_spec_ib(struct task_struct *next)
+ {
+-	unsigned cpu = smp_processor_id();
++	unsigned long next_tif = task_thread_info(next)->flags;
++	unsigned long ibpb = (next_tif >> TIF_SPEC_IB) & LAST_USER_MM_IBPB;
+ 
+-	if (likely(prev != next)) {
+-		u64 last_ctx_id = this_cpu_read(cpu_tlbstate.last_ctx_id);
++	return (unsigned long)next->mm | ibpb;
++}
++
++static void cond_ibpb(struct task_struct *next)
++{
++	if (!next || !next->mm)
++		return;
++
++	/*
++	 * Both, the conditional and the always IBPB mode use the mm
++	 * pointer to avoid the IBPB when switching between tasks of the
++	 * same process. Using the mm pointer instead of mm->context.ctx_id
++	 * opens a hypothetical hole vs. mm_struct reuse, which is more or
++	 * less impossible to control by an attacker. Aside of that it
++	 * would only affect the first schedule so the theoretically
++	 * exposed data is not really interesting.
++	 */
++	if (static_branch_likely(&switch_mm_cond_ibpb)) {
++		unsigned long prev_mm, next_mm;
+ 
+ 		/*
+-		 * Avoid user/user BTB poisoning by flushing the branch
+-		 * predictor when switching between processes. This stops
+-		 * one process from doing Spectre-v2 attacks on another.
++		 * This is a bit more complex than the always mode because
++		 * it has to handle two cases:
++		 *
++		 * 1) Switch from a user space task (potential attacker)
++		 *    which has TIF_SPEC_IB set to a user space task
++		 *    (potential victim) which has TIF_SPEC_IB not set.
++		 *
++		 * 2) Switch from a user space task (potential attacker)
++		 *    which has TIF_SPEC_IB not set to a user space task
++		 *    (potential victim) which has TIF_SPEC_IB set.
++		 *
++		 * This could be done by unconditionally issuing IBPB when
++		 * a task which has TIF_SPEC_IB set is either scheduled in
++		 * or out. Though that results in two flushes when:
++		 *
++		 * - the same user space task is scheduled out and later
++		 *   scheduled in again and only a kernel thread ran in
++		 *   between.
++		 *
++		 * - a user space task belonging to the same process is
++		 *   scheduled in after a kernel thread ran in between
+ 		 *
+-		 * As an optimization, flush indirect branches only when
+-		 * switching into processes that disable dumping. This
+-		 * protects high value processes like gpg, without having
+-		 * too high performance overhead. IBPB is *expensive*!
++		 * - a user space task belonging to the same process is
++		 *   scheduled in immediately.
+ 		 *
+-		 * This will not flush branches when switching into kernel
+-		 * threads. It will also not flush if we switch to idle
+-		 * thread and back to the same process. It will flush if we
+-		 * switch to a different non-dumpable process.
++		 * Optimize this with reasonably small overhead for the
++		 * above cases. Mangle the TIF_SPEC_IB bit into the mm
++		 * pointer of the incoming task which is stored in
++		 * cpu_tlbstate.last_user_mm_ibpb for comparison.
+ 		 */
+-		if (tsk && tsk->mm &&
+-		    tsk->mm->context.ctx_id != last_ctx_id &&
+-		    get_dumpable(tsk->mm) != SUID_DUMP_USER)
++		next_mm = mm_mangle_tif_spec_ib(next);
++		prev_mm = this_cpu_read(cpu_tlbstate.last_user_mm_ibpb);
++
++		/*
++		 * Issue IBPB only if the mm's are different and one or
++		 * both have the IBPB bit set.
++		 */
++		if (next_mm != prev_mm &&
++		    (next_mm | prev_mm) & LAST_USER_MM_IBPB)
+ 			indirect_branch_prediction_barrier();
+ 
++		this_cpu_write(cpu_tlbstate.last_user_mm_ibpb, next_mm);
++	}
++
++	if (static_branch_unlikely(&switch_mm_always_ibpb)) {
+ 		/*
+-		 * Record last user mm's context id, so we can avoid
+-		 * flushing branch buffer with IBPB if we switch back
+-		 * to the same user.
++		 * Only flush when switching to a user space task with a
++		 * different context than the user space task which ran
++		 * last on this CPU.
++		 */
++		if (this_cpu_read(cpu_tlbstate.last_user_mm) != next->mm) {
++			indirect_branch_prediction_barrier();
++			this_cpu_write(cpu_tlbstate.last_user_mm, next->mm);
++		}
++	}
++}
++
++void switch_mm_irqs_off(struct mm_struct *prev, struct mm_struct *next,
++			struct task_struct *tsk)
++{
++	unsigned cpu = smp_processor_id();
++
++	if (likely(prev != next)) {
++		/*
++		 * Avoid user/user BTB poisoning by flushing the branch
++		 * predictor when switching between processes. This stops
++		 * one process from doing Spectre-v2 attacks on another.
+ 		 */
+-		if (next != &init_mm)
+-			this_cpu_write(cpu_tlbstate.last_ctx_id, next->context.ctx_id);
++		cond_ibpb(tsk);
+ 
+ 		this_cpu_write(cpu_tlbstate.state, TLBSTATE_OK);
+ 		this_cpu_write(cpu_tlbstate.active_mm, next);
 diff --git a/drivers/ata/libata-zpodd.c b/drivers/ata/libata-zpodd.c
 index 0ad96c647541..7017a81d53cf 100644
 --- a/drivers/ata/libata-zpodd.c
@@ -3877,7 +8663,6 @@ index 49926d95442f..e88c8cdef6a7 100644
 --- a/init/main.c
 +++ b/init/main.c
 @@ -538,6 +538,8 @@ asmlinkage __visible void __init start_kernel(void)
- 	}
  #else
  	pr_notice("Kernel command line: %s\n", boot_command_line);
  #endif
@@ -3928,8 +8713,7 @@ index 42ce0b0ae5c5..3225c3a9d028 100644
  	return err;
  }
  
-@@ -537,8 +545,8 @@ out_notify:
- 		__cpu_notify(CPU_UP_CANCELED | mod, hcpu, nr_calls, NULL);
+@@ -537,7 +545,7 @@ out_notify:
  out:
  	cpu_hotplug_done();
  	trace_sched_cpu_hotplug(cpu, ret, 1);
@@ -4734,6 +9518,21 @@ index e9653c42cdd1..8400211537a2 100644
  	if (!string_is_valid(lc->name, len))
  		return -EINVAL;
  
+diff --git a/scripts/Kbuild.include b/scripts/Kbuild.include
+index 5e9cf7d146f0..e61a5c29b08c 100644
+--- a/scripts/Kbuild.include
++++ b/scripts/Kbuild.include
+@@ -156,9 +156,7 @@ cc-ldoption = $(call try-run,\
+ 
+ # ld-option
+ # Usage: LDFLAGS += $(call ld-option, -X)
+-ld-option = $(call try-run,\
+-	$(CC) $(KBUILD_CPPFLAGS) $(KBUILD_CFLAGS) -x c /dev/null -c -o "$$TMPO"; \
+-	$(LD) $(LDFLAGS) $(1) "$$TMPO" -o "$$TMP",$(1),$(2))
++ld-option = $(call try-run, $(LD) $(LDFLAGS) $(1) -v,$(1),$(2))
+ 
+ # ar-option
+ # Usage: KBUILD_ARFLAGS := $(call ar-option,D)
 diff --git a/scripts/kconfig/lxdialog/inputbox.c b/scripts/kconfig/lxdialog/inputbox.c
 index d58de1dc5360..510049a7bd1d 100644
 --- a/scripts/kconfig/lxdialog/inputbox.c
