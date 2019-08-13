@@ -359,7 +359,7 @@
 +
 +&audio {
 +	status = "okay";
-+}
++};
 +
 +&aiu_i2s {
 +	status = "okay";
