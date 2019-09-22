@@ -50,11 +50,11 @@ create_board_package()
 	Installed-Size: 1
 	Section: kernel
 	Priority: optional
-	Depends: bash, linux-base, u-boot-tools, initramfs-tools, python3-apt
+	Depends: bash, linux-base, u-boot-tools, initramfs-tools
 	Provides: armbian-bsp
 	Conflicts: armbian-bsp
 	Suggests: armbian-config
-	Replaces: zram-config, base-files, armbian-tools-$RELEASE
+	Replaces: lsb-release, zram-config, base-files, armbian-tools-$RELEASE
 	Recommends: bsdutils, parted, util-linux, toilet
 	Description: Armbian tweaks for $RELEASE on $BOARD ($BRANCH branch)
 	EOF
@@ -315,11 +315,6 @@ create_board_package()
 	fi
 
 	case $RELEASE in
-	jessie)
-		mkdir -p "${destination}"/etc/NetworkManager/dispatcher.d/
-		install -m 755 "${SRC}"/packages/bsp/99disable-power-management "${destination}"/etc/NetworkManager/dispatcher.d/
-	;;
-
 	xenial)
 		mkdir -p "${destination}"/usr/lib/NetworkManager/conf.d/
 		cp "${SRC}"/packages/bsp/zz-override-wifi-powersave-off.conf "${destination}"/usr/lib/NetworkManager/conf.d/
@@ -370,8 +365,8 @@ create_board_package()
 	# create board DEB file
 	display_alert "Building package" "$CHOSEN_ROOTFS" "info"
 	fakeroot dpkg-deb -b "${destination}" "${destination}.deb" >> "${DEST}"/debug/install.log 2>&1
-	mkdir -p "${DEST}/debs/${RELEASE}/"
-	mv "${destination}.deb" "${DEST}/debs/${RELEASE}/"
+	mkdir -p "${DEB_STORAGE}/${RELEASE}/"
+	mv "${destination}.deb" "${DEB_STORAGE}/${RELEASE}/"
 	# cleanup
 	rm -rf "${destination}"
 }

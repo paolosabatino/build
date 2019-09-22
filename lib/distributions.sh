@@ -99,6 +99,13 @@ install_common()
 	# console fix due to Debian bug
 	sed -e 's/CHARMAP=".*"/CHARMAP="'$CONSOLE_CHAR'"/g' -i "${SDCARD}"/etc/default/console-setup
 
+	# add the /dev/urandom path to the rng config file
+	echo "HRNGDEVICE=/dev/urandom" >> "${SDCARD}"/etc/default/rng-tools
+
+	# ping needs privileged action to be able to create raw network socket
+	# this is working properly but not with (at least) Debian Buster
+	chroot "${SDCARD}" /bin/bash -c "chmod u+s /bin/ping"
+
 	# change time zone data
 	echo "${TZDATA}" > "${SDCARD}"/etc/timezone
 	chroot "${SDCARD}" /bin/bash -c "dpkg-reconfigure -f noninteractive tzdata >/dev/null 2>&1"
@@ -173,34 +180,41 @@ install_common()
 	EOF
 
 	# install kernel and u-boot packages
-	install_deb_chroot "$DEST/debs/${CHOSEN_KERNEL}_${REVISION}_${ARCH}.deb"
-	install_deb_chroot "$DEST/debs/${CHOSEN_UBOOT}_${REVISION}_${ARCH}.deb"
+	install_deb_chroot "${DEB_STORAGE}/${CHOSEN_KERNEL}_${REVISION}_${ARCH}.deb"
+	install_deb_chroot "${DEB_STORAGE}/${CHOSEN_UBOOT}_${REVISION}_${ARCH}.deb"
 
 
 	if [[ $BUILD_DESKTOP == yes ]]; then
-		install_deb_chroot "$DEST/debs/$RELEASE/armbian-${RELEASE}-desktop_${REVISION}_all.deb"
-		# install display manager
+		install_deb_chroot "${DEB_STORAGE}/$RELEASE/armbian-${RELEASE}-desktop_${REVISION}_all.deb"
+		# install display manager and PACKAGE_LIST_DESKTOP_FULL packages if enabled per board
 		desktop_postinstall
 	fi
 
 	if [[ $INSTALL_HEADERS == yes ]]; then
-		install_deb_chroot "$DEST/debs/${CHOSEN_KERNEL/image/headers}_${REVISION}_${ARCH}.deb"
+		install_deb_chroot "${DEB_STORAGE}/${CHOSEN_KERNEL/image/headers}_${REVISION}_${ARCH}.deb"
 	fi
 
-	if [[ -f $DEST/debs/armbian-firmware_${REVISION}_${ARCH}.deb ]]; then
-		install_deb_chroot "$DEST/debs/armbian-firmware_${REVISION}_${ARCH}.deb"
+	if [[ $BUILD_MINIMAL != yes ]]; then
+		install_deb_chroot "${DEB_STORAGE}/armbian-config_${REVISION}_all.deb"
 	fi
 
-	if [[ -f $DEST/debs/${CHOSEN_KERNEL/image/dtb}_${REVISION}_${ARCH}.deb ]]; then
-		install_deb_chroot "$DEST/debs/${CHOSEN_KERNEL/image/dtb}_${REVISION}_${ARCH}.deb"
+	if [[ -f ${DEB_STORAGE}/armbian-firmware_${REVISION}_all.deb ]]; then
+		install_deb_chroot "${DEB_STORAGE}/armbian-firmware_${REVISION}_all.deb"
 	fi
 
-	if [[ -f $DEST/debs/${CHOSEN_KSRC}_${REVISION}_all.deb && $INSTALL_KSRC == yes ]]; then
-		install_deb_chroot "$DEST/debs/${CHOSEN_KSRC}_${REVISION}_all.deb"
+	if [[ -f ${DEB_STORAGE}/${CHOSEN_KERNEL/image/dtb}_${REVISION}_${ARCH}.deb ]]; then
+		install_deb_chroot "${DEB_STORAGE}/${CHOSEN_KERNEL/image/dtb}_${REVISION}_${ARCH}.deb"
 	fi
+
+	if [[ -f ${DEB_STORAGE}/${CHOSEN_KSRC}_${REVISION}_all.deb && $INSTALL_KSRC == yes ]]; then
+		install_deb_chroot "${DEB_STORAGE}/${CHOSEN_KSRC}_${REVISION}_all.deb"
+	fi
+
+	# install wireguard tools
+	chroot "${SDCARD}" /bin/bash -c "apt -y -qq install wireguard-tools"
 
 	# install board support package
-	install_deb_chroot "$DEST/debs/$RELEASE/${CHOSEN_ROOTFS}_${REVISION}_${ARCH}.deb"
+	install_deb_chroot "${DEB_STORAGE}/$RELEASE/${CHOSEN_ROOTFS}_${REVISION}_${ARCH}.deb"
 
 	# freeze armbian packages
 	if [[ $BSPFREEZE == yes ]]; then
@@ -230,6 +244,10 @@ install_common()
 	[[ -f $SDCARD/etc/console-setup/cached_setup_terminal.sh ]] && sed -i "s/^printf '.*/printf '\\\033\%\%G'/g" "${SDCARD}"/etc/console-setup/cached_setup_terminal.sh
 	[[ -f $SDCARD/etc/console-setup/cached_setup_keyboard.sh ]] && sed -i "s/-u/-x'/g" "${SDCARD}"/etc/console-setup/cached_setup_keyboard.sh
 
+	# fix for https://bugs.launchpad.net/ubuntu/+source/blueman/+bug/1542723
+	chroot "${SDCARD}" /bin/bash -c "chown root:messagebus /usr/lib/dbus-1.0/dbus-daemon-launch-helper"
+	chroot "${SDCARD}" /bin/bash -c "chmod u+s /usr/lib/dbus-1.0/dbus-daemon-launch-helper"
+
 	# disable low-level kernel messages for non betas
 	# TODO: enable only for desktop builds?
 	if [[ -z $BETA ]]; then
@@ -245,9 +263,9 @@ install_common()
 	ifs=$IFS
 	for i in $(echo ${SERIALCON} | sed "s/,/ /g")
 	do
-		# add serial console to secure tty list
-		[ -z "$(grep -w '^$i' "${SDCARD}"/etc/securetty 2> /dev/null)" ] && echo "$i" >>  "${SDCARD}"/etc/securetty
 		IFS=':' read -r -a array <<< "$i"
+		# add serial console to secure tty list
+		[ -z "$(grep -w '^${array[0]}' "${SDCARD}"/etc/securetty 2> /dev/null)" ] && echo "${array[0]}" >>  "${SDCARD}"/etc/securetty
 		if [[ ${array[1]} != "115200" && -n ${array[1]} ]]; then
 			# make a copy, fix speed and enable
 			cp "${SDCARD}"/lib/systemd/system/serial-getty@.service "${SDCARD}"/lib/systemd/system/serial-getty@${array[0]}.service
@@ -293,6 +311,13 @@ install_common()
 	# configure network manager
 	sed "s/managed=\(.*\)/managed=true/g" -i "${SDCARD}"/etc/NetworkManager/NetworkManager.conf
 
+	# remove network manager defaults to handle eth by default
+	rm -f "${SDCARD}"/usr/lib/NetworkManager/conf.d/10-globally-managed-devices.conf
+
+	# avahi daemon defaults if exists
+	[[ -f "${SDCARD}"/usr/share/doc/avahi-daemon/examples/sftp-ssh.service ]] && cp "${SDCARD}"/usr/share/doc/avahi-daemon/examples/sftp-ssh.service "${SDCARD}"/etc/avahi/services/
+	[[ -f "${SDCARD}"/usr/share/doc/avahi-daemon/examples/ssh.service ]] && cp "${SDCARD}"/usr/share/doc/avahi-daemon/examples/ssh.service "${SDCARD}"/etc/avahi/services/
+
 	# Just regular DNS and maintain /etc/resolv.conf as a file
 	sed "/dns/d" -i "${SDCARD}"/etc/NetworkManager/NetworkManager.conf
 	sed "s/\[main\]/\[main\]\ndns=default\nrc-manager=file/g" -i "${SDCARD}"/etc/NetworkManager/NetworkManager.conf
@@ -304,7 +329,7 @@ install_common()
 		EOF
 	fi
 
-        # nsswitch settings for sane DNS behavior: remove resolve, assure libnss-myhostname support
+	# nsswitch settings for sane DNS behavior: remove resolve, assure libnss-myhostname support
 	sed "s/hosts\:.*/hosts:          files mymachines dns myhostname/g" -i "${SDCARD}"/etc/nsswitch.conf
 }
 
@@ -377,7 +402,7 @@ install_distribution_specific()
 		EOF
 		chmod +x "${SDCARD}"/etc/rc.local
 		# Basic Netplan config. Let NetworkManager manage all devices on this system
-		cat <<-EOF > "${SDCARD}"/etc/netplan/armbian-default.yaml
+		[[ -d "${SDCARD}"/etc/netplan ]] && cat <<-EOF > "${SDCARD}"/etc/netplan/armbian-default.yaml
 		network:
 		  version: 2
 		  renderer: NetworkManager
@@ -436,7 +461,7 @@ install_distribution_specific()
 		EOF
 		chmod +x "${SDCARD}"/etc/rc.local
 		# Basic Netplan config. Let NetworkManager manage all devices on this system
-		cat <<-EOF > "${SDCARD}"/etc/netplan/armbian-default.yaml
+		[[ -d "${SDCARD}"/etc/netplan ]] && cat <<-EOF > "${SDCARD}"/etc/netplan/armbian-default.yaml
 		network:
 		  version: 2
 		  renderer: NetworkManager
