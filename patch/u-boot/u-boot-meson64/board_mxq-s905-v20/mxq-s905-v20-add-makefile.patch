@@ -27,18 +27,6 @@ index e69de29..ee63bac 100644
 +#
 +
 +obj-y	:= mxq-s905-v20.o
-diff --git a/arch/arm/dts/Makefile b/arch/arm/dts/Makefile
-index d36447d..5486ab6 100644
---- a/arch/arm/dts/Makefile
-+++ b/arch/arm/dts/Makefile
-@@ -56,6 +56,7 @@ dtb-$(CONFIG_ARCH_MESON) += \
- 	meson-gxbb-nanopi-k2.dtb \
- 	meson-gxbb-odroidc2.dtb \
- 	meson-gxbb-nanopi-k2.dtb \
-+	meson-gxbb-mxq-s905-v20.dtb \
- 	meson-gxl-s905x-p212.dtb \
- 	meson-gxl-s905x-libretech-cc.dtb \
- 	meson-gxl-s905x-khadas-vim.dtb \
 --- /dev/null	2018-12-15 10:20:54.484000000 +0000
 +++ b/include/configs/mxq-s905-v20.h	2018-12-15 11:47:59.195703546 +0000
 @@ -0,0 +1,20 @@
@@ -161,3 +149,15 @@ index d36447d..5486ab6 100644
 +	return 0;
 +}
 +*/
+diff --git a/arch/arm/dts/Makefile b/arch/arm/dts/Makefile
+index 20dbc2ff..e1520b10 100644
+--- a/arch/arm/dts/Makefile
++++ b/arch/arm/dts/Makefile
+@@ -128,6 +128,7 @@ dtb-$(CONFIG_ARCH_MESON) += \
+ 	meson-gxbb-nanopi-k2.dtb \
+ 	meson-gxbb-p200.dtb \
+ 	meson-gxbb-p201.dtb \
++	meson-gxbb-mxq-s905-v20.dtb \
+ 	meson-gxl-s905x-p212.dtb \
+ 	meson-gxl-s805x-libretech-ac.dtb \
+ 	meson-gxl-s905x-libretech-cc.dtb \
