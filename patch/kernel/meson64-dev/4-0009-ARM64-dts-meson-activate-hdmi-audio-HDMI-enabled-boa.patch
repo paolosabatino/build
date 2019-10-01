@@ -12,20 +12,6 @@ the audio I expect to see merged
 
 Signed-off-by: Jerome Brunet <jbrunet@baylibre.com>
 Signed-off-by: Neil Armstrong <narmstrong@baylibre.com>
----
- .../boot/dts/amlogic/meson-gx-p23x-q20x.dtsi  | 37 +++++++++++++++++++
- .../boot/dts/amlogic/meson-gxbb-nanopi-k2.dts | 37 +++++++++++++++++++
- .../dts/amlogic/meson-gxbb-nexbox-a95x.dts    | 37 +++++++++++++++++++
- .../boot/dts/amlogic/meson-gxbb-odroidc2.dts  | 37 +++++++++++++++++++
- .../boot/dts/amlogic/meson-gxbb-p20x.dtsi     | 37 +++++++++++++++++++
- .../boot/dts/amlogic/meson-gxbb-wetek.dtsi    | 37 +++++++++++++++++++
- .../amlogic/meson-gxl-s905x-khadas-vim.dts    | 37 +++++++++++++++++++
- .../amlogic/meson-gxl-s905x-libretech-cc.dts  | 37 +++++++++++++++++++
- .../amlogic/meson-gxl-s905x-nexbox-a95x.dts   | 37 +++++++++++++++++++
- .../boot/dts/amlogic/meson-gxl-s905x-p212.dts | 37 +++++++++++++++++++
- .../dts/amlogic/meson-gxm-khadas-vim2.dts     | 37 +++++++++++++++++++
- .../boot/dts/amlogic/meson-gxm-nexbox-a1.dts  | 37 +++++++++++++++++++
- 12 files changed, 444 insertions(+)
 
 
 diff --git a/arch/arm64/boot/dts/amlogic/meson-gx-p23x-q20x.dtsi b/arch/arm64/boot/dts/amlogic/meson-gx-p23x-q20x.dtsi
