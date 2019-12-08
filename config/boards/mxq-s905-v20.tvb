@@ -1,14 +1,6 @@
-# MXQ S905 V20  quad core 1GB SoC WiFi eMMC
+# MXQ S905 V20 quad core 1GB RAM SoC Wifi eMMC
 BOARD_NAME="MXQ S905 V20"
-BOARDFAMILY="meson64"
+BOARDFAMILY="meson-gxbb"
 BOOTCONFIG="mxq-s905-v20_defconfig"
-#
-MODULES=""
-MODULES_NEXT=""
-#
-KERNEL_TARGET="default,next,dev"
-CLI_TARGET="stretch:default,next"
-DESKTOP_TARGET="stretch:default,next"
-CLI_BETA_TARGET=""
-DESKTOP_BETA_TARGET=""
-
+KERNEL_TARGET="current,dev"
+FULL_DESKTOP="yes"

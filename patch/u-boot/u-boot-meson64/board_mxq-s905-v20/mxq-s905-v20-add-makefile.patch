@@ -89,9 +89,24 @@ index e69de29..ee63bac 100644
 +CONFIG_DEBUG_UART_SKIP_INIT=y
 +CONFIG_MESON_SERIAL=y
 +CONFIG_OF_LIBFDT_OVERLAY=y
---- /dev/null	2019-05-05 00:08:46.100000000 +0000
-+++ b/board/amlogic/mxq-s905-v20/mxq-s905-v20.c	2019-05-05 00:51:30.181414235 +0000
-@@ -0,0 +1,57 @@
+diff --git a/arch/arm/dts/Makefile b/arch/arm/dts/Makefile
+index 20dbc2ff..e1520b10 100644
+--- a/arch/arm/dts/Makefile
++++ b/arch/arm/dts/Makefile
+@@ -128,6 +128,7 @@ dtb-$(CONFIG_ARCH_MESON) += \
+ 	meson-gxbb-nanopi-k2.dtb \
+ 	meson-gxbb-p200.dtb \
+ 	meson-gxbb-p201.dtb \
++	meson-gxbb-mxq-s905-v20.dtb \
+ 	meson-gxl-s905x-p212.dtb \
+ 	meson-gxl-s805x-libretech-ac.dtb \
+ 	meson-gxl-s905x-libretech-cc.dtb \
+diff --git a/board/amlogic/mxq-s905-v20/mxq-s905-v20.c b/board/amlogic/mxq-s905-v20/mxq-s905-v20.c
+new file mode 100644
+index 00000000..4dceb732
+--- /dev/null
++++ b/board/amlogic/mxq-s905-v20/mxq-s905-v20.c
+@@ -0,0 +1,56 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * (C) Copyright 2018 Thomas McKahan
@@ -99,7 +114,6 @@ index e69de29..ee63bac 100644
 +
 +#include <common.h>
 +#include <dm.h>
-+#include <environment.h>
 +#include <asm/io.h>
 +#include <asm/arch/gx.h>
 +#include <asm/arch/sm.h>
@@ -149,15 +163,3 @@ index e69de29..ee63bac 100644
 +	return 0;
 +}
 +*/
-diff --git a/arch/arm/dts/Makefile b/arch/arm/dts/Makefile
-index 20dbc2ff..e1520b10 100644
---- a/arch/arm/dts/Makefile
-+++ b/arch/arm/dts/Makefile
-@@ -128,6 +128,7 @@ dtb-$(CONFIG_ARCH_MESON) += \
- 	meson-gxbb-nanopi-k2.dtb \
- 	meson-gxbb-p200.dtb \
- 	meson-gxbb-p201.dtb \
-+	meson-gxbb-mxq-s905-v20.dtb \
- 	meson-gxl-s905x-p212.dtb \
- 	meson-gxl-s805x-libretech-ac.dtb \
- 	meson-gxl-s905x-libretech-cc.dtb \

@@ -24,11 +24,11 @@
 +	};
 +
 +	reserved-memory {
-+		// Reduce CMA reserved memory to 64 Mb due to only 1 Gb of main ram
++		// Reduce CMA reserved memory to 128 Mb due to only 1 Gb of main ram
 +		linux,cma {
 +                        compatible = "shared-dma-pool";
 +                        reusable;
-+                        size = <0x0 0x4000000>;
++                        size = <0x0 0x8000000>;
 +                        alignment = <0x0 0x400000>;
 +                        linux,cma-default;
 +                };
