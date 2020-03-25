@@ -31,8 +31,6 @@ install_common()
 		fi
 
 	fi
-	# define ARCH within global environment variables
-	[[ -f $SDCARD/etc/environment ]] && echo -e "ARCH=${ARCH//hf}" >> "${SDCARD}"/etc/environment
 
 	# add dummy fstab entry to make mkinitramfs happy
 	echo "/dev/mmcblk0p1 / $ROOTFS_TYPE defaults 0 1" >> "${SDCARD}"/etc/fstab
@@ -61,8 +59,7 @@ install_common()
 			# /usr/share/initramfs-tools/hooks/dropbear will automatically add 'id_ecdsa.pub' to authorized_keys file
 			# during mkinitramfs of update-initramfs
 			#cat $SDCARD/etc/dropbear-initramfs/id_ecdsa.pub > $SDCARD/etc/dropbear-initramfs/authorized_keys
-			CRYPTROOT_SSH_UNLOCK_KEY_NAME=\
-			"Armbian_${REVISION}_${BOARD^}_${DISTRIBUTION}_${RELEASE}_${BRANCH}_${VER/-$LINUXFAMILY/}".key
+			CRYPTROOT_SSH_UNLOCK_KEY_NAME="Armbian_${REVISION}_${BOARD^}_${RELEASE}_${BRANCH}_${VER/-$LINUXFAMILY/}".key
 			# copy dropbear ssh key to image output dir for convenience
 			cp "${SDCARD}"/etc/dropbear-initramfs/id_ecdsa "${DEST}/images/${CRYPTROOT_SSH_UNLOCK_KEY_NAME}"
 			display_alert "SSH private key for dropbear (initramfs) has been copied to:" \
@@ -180,6 +177,9 @@ install_common()
 	[[ -n $DEFAULT_OVERLAYS && -f $SDCARD/boot/armbianEnv.txt ]] && \
 		echo "overlays=${DEFAULT_OVERLAYS//,/ }" >> "${SDCARD}"/boot/armbianEnv.txt
 
+	[[ -n $BOOT_FDT_FILE && -f $SDCARD/boot/armbianEnv.txt ]] && \
+		echo "fdtfile=${BOOT_FDT_FILE}" >> "${SDCARD}/boot/armbianEnv.txt"
+
 	# initial date for fake-hwclock
 	date -u '+%Y-%m-%d %H:%M:%S' > "${SDCARD}"/etc/fake-hwclock.data
 
@@ -226,8 +226,10 @@ install_common()
 		install_deb_chroot "${DEB_STORAGE}/${CHOSEN_KSRC}_${REVISION}_all.deb"
 	fi
 
-	# install wireguard tools
-	chroot "${SDCARD}" /bin/bash -c "apt -y -qq install wireguard-tools" >> "${DEST}"/debug/install.log 2>&1
+	if [[ $WIREGUARD == yes ]]; then
+		# install wireguard tools
+		chroot "${SDCARD}" /bin/bash -c "apt -y -qq install wireguard-tools --no-install-recommends" >> "${DEST}"/debug/install.log 2>&1
+	fi
 
 	# install board support package
 	install_deb_chroot "${DEB_STORAGE}/$RELEASE/${CHOSEN_ROOTFS}_${REVISION}_${ARCH}.deb" >> "${DEST}"/debug/install.log 2>&1
@@ -293,7 +295,7 @@ install_common()
 	# example: SERIALCON="ttyS0:15000000,ttyGS1"
 	#
 	ifs=$IFS
-	for i in $(echo ${SERIALCON} | sed "s/,/ /g")
+	for i in $(echo ${SERIALCON:-'ttyS0'} | sed "s/,/ /g")
 	do
 		IFS=':' read -r -a array <<< "$i"
 		# add serial console to secure tty list
@@ -425,13 +427,26 @@ install_distribution_specific()
 
 			# remove doubled uname from motd
 			[[ -f $SDCARD/etc/update-motd.d/10-uname ]] && rm "${SDCARD}"/etc/update-motd.d/10-uname
-			
 			# rc.local is not existing but one might need it
 			install_rclocal
 
 		;;
 
-	bionic|disco|eoan)
+	bullseye)
+
+			# remove doubled uname from motd
+			[[ -f $SDCARD/etc/update-motd.d/10-uname ]] && rm "${SDCARD}"/etc/update-motd.d/10-uname
+			# rc.local is not existing but one might need it
+			install_rclocal
+			# fix missing versioning
+			[[ $(grep -L "VERSION_ID=" "${SDCARD}"/etc/os-release) ]] && echo 'VERSION_ID="11"' >> "${SDCARD}"/etc/os-release
+			[[ $(grep -L "VERSION=" "${SDCARD}"/etc/os-release) ]] && echo 'VERSION="11 (bullseye)"' >> "${SDCARD}"/etc/os-release
+
+			# remove security updates repository since it does not exists yet
+			sed '/security/ d' -i "${SDCARD}"/etc/apt/sources.list
+
+		;;
+	bionic|eoan|focal)
 
 			# remove doubled uname from motd
 			[[ -f $SDCARD/etc/update-motd.d/10-uname ]] && rm "${SDCARD}"/etc/update-motd.d/10-uname

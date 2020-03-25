@@ -1196,7 +1196,7 @@ index 0000000..9254e22
 +};
 diff --git a/arch/arm/boot/dts/overlay/sun4i-a10-can.dts b/arch/arm/boot/dts/overlay/sun4i-a10-can.dts
 new file mode 100644
-index 0000000..4be3a38
+index 0000000..1a9511d
 --- /dev/null
 +++ b/arch/arm/boot/dts/overlay/sun4i-a10-can.dts
 @@ -0,0 +1,15 @@
@@ -1210,7 +1210,7 @@ index 0000000..4be3a38
 +		target = <&can0>;
 +		__overlay__ {
 +			pinctrl-names = "default";
-+			pinctrl-0 = <&can0_pins_a>;
++			pinctrl-0 = <&can0_ph_pins>;
 +			status = "okay";
 +		};
 +	};
@@ -1242,10 +1242,10 @@ index 0000000..d80f2fc
 +	test "${param_spinor_spi_bus}" = "0" && setenv tmp_spi_path "spi@1c05000"
 +	test "${param_spinor_spi_bus}" = "1" && setenv tmp_spi_path "spi@1c06000"
 +	test "${param_spinor_spi_bus}" = "2" && setenv tmp_spi_path "spi@1c17000"
-+	fdt set /soc@1c00000/${tmp_spi_path} status "okay"
-+	fdt set /soc@1c00000/${tmp_spi_path}/spiflash status "okay"
++	fdt set /soc/${tmp_spi_path} status "okay"
++	fdt set /soc/${tmp_spi_path}/spiflash status "okay"
 +	if test -n "${param_spinor_max_freq}"; then
-+		fdt set /soc@1c00000/${tmp_spi_path}/spiflash spi-max-frequency "<${param_spinor_max_freq}>"
++		fdt set /soc/${tmp_spi_path}/spiflash spi-max-frequency "<${param_spinor_max_freq}>"
 +	fi
 +	env delete tmp_spi_path
 +fi
@@ -1254,19 +1254,19 @@ index 0000000..d80f2fc
 +	test "${param_spidev_spi_bus}" = "0" && setenv tmp_spi_path "spi@1c05000"
 +	test "${param_spidev_spi_bus}" = "1" && setenv tmp_spi_path "spi@1c06000"
 +	test "${param_spidev_spi_bus}" = "2" && setenv tmp_spi_path "spi@1c17000"
-+	fdt set /soc@1c00000/${tmp_spi_path} status "okay"
-+	fdt set /soc@1c00000/${tmp_spi_path}/spidev status "okay"
++	fdt set /soc/${tmp_spi_path} status "okay"
++	fdt set /soc/${tmp_spi_path}/spidev status "okay"
 +	if test -n "${param_spidev_max_freq}"; then
-+		fdt set /soc@1c00000/${tmp_spi_path}/spidev spi-max-frequency "<${param_spidev_max_freq}>"
++		fdt set /soc/${tmp_spi_path}/spidev spi-max-frequency "<${param_spidev_max_freq}>"
 +	fi
 +	env delete tmp_spi_path
 +fi
 +
 +if test "${param_spi2_bus_pins}" = "b"; then
-+	fdt get value tmp_phandle1 /soc@1c00000/pinctrl@1c20800/spi2@1 phandle
-+	fdt get value tmp_phandle2 /soc@1c00000/pinctrl@1c20800/spi2_cs0@1 phandle
-+	fdt set /soc@1c00000/spi@1c17000 pinctrl-0 "<${tmp_phandle1}>"
-+	fdt set /soc@1c00000/spi@1c17000 pinctrl-1 "<${tmp_phandle2}>"
++	fdt get value tmp_phandle1 /soc/pinctrl@1c20800/spi2@1 phandle
++	fdt get value tmp_phandle2 /soc/pinctrl@1c20800/spi2_cs0@1 phandle
++	fdt set /soc/spi@1c17000 pinctrl-0 "<${tmp_phandle1}>"
++	fdt set /soc/spi@1c17000 pinctrl-1 "<${tmp_phandle2}>"
 +	env delete tmp_phandle1 tmp_phandle2
 +fi
 +
@@ -1274,8 +1274,8 @@ index 0000000..d80f2fc
 +	setenv tmp_bank "${param_pps_pin}"
 +	setenv tmp_pin "${param_pps_pin}"
 +	run decompose_pin
-+	fdt set /soc@1c00000/pinctrl@1c20800/pps_pins pins "${param_pps_pin}"
-+	fdt get value tmp_phandle /soc@1c00000/pinctrl@1c20800 phandle
++	fdt set /soc/pinctrl@1c20800/pps_pins pins "${param_pps_pin}"
++	fdt get value tmp_phandle /soc/pinctrl@1c20800 phandle
 +	fdt set /pps@0 gpios "<${tmp_phandle} ${tmp_bank} ${tmp_pin} 0>"
 +	env delete tmp_pin tmp_bank tmp_phandle
 +fi
@@ -1285,14 +1285,14 @@ index 0000000..d80f2fc
 +fi
 +
 +if test "${param_pwm_pins}" = "0"; then
-+	fdt get value tmp_phandle /soc@1c00000/pinctrl@1c20800/pwm0@0
-+	fdt set /soc@1c00000/pwm@1c20e00 pinctrl-0 "<${tmp_phandle}>"
++	fdt get value tmp_phandle /soc/pinctrl@1c20800/pwm0@0
++	fdt set /soc/pwm@1c20e00 pinctrl-0 "<${tmp_phandle}>"
 +	env delete tmp_phandle
 +fi
 +
 +if test "${param_pwm_pins}" = "1"; then
-+	fdt get value tmp_phandle /soc@1c00000/pinctrl@1c20800/pwm1@0
-+	fdt set /soc@1c00000/pwm@1c20e00 pinctrl-0 "<${tmp_phandle}>"
++	fdt get value tmp_phandle /soc/pinctrl@1c20800/pwm1@0
++	fdt set /soc/pwm@1c20e00 pinctrl-0 "<${tmp_phandle}>"
 +	env delete tmp_phandle
 +fi
 +
@@ -1300,54 +1300,54 @@ index 0000000..d80f2fc
 +	setenv tmp_bank "${param_w1_pin}"
 +	setenv tmp_pin "${param_w1_pin}"
 +	run decompose_pin
-+	fdt set /soc@1c00000/pinctrl@1c20800/w1_pins pins "${param_w1_pin}"
-+	fdt get value tmp_phandle /soc@1c00000/pinctrl@1c20800 phandle
++	fdt set /soc/pinctrl@1c20800/w1_pins pins "${param_w1_pin}"
++	fdt get value tmp_phandle /soc/pinctrl@1c20800 phandle
 +	fdt set /onewire@0 gpios "<${tmp_phandle} ${tmp_bank} ${tmp_pin} 0>"
 +	env delete tmp_pin tmp_bank tmp_phandle
 +fi
 +
 +if test "${param_w1_pin_int_pullup}" = "1"; then
-+	fdt set /soc@1c00000/pinctrl@1c20800/w1_pins bias-pull-up
++	fdt set /soc/pinctrl@1c20800/w1_pins bias-pull-up
 +fi
 +
 +if test "${param_uart2_rtscts}" = "1"; then
-+	fdt get value tmp_phandle /soc@1c00000/pinctrl@1c20800/uart2@0 phandle
-+	fdt set /soc@1c00000/serial@1c28800 pinctrl-0 "<${tmp_phandle}>"
++	fdt get value tmp_phandle /soc/pinctrl@1c20800/uart2@0 phandle
++	fdt set /soc/serial@1c28800 pinctrl-0 "<${tmp_phandle}>"
 +	env delete tmp_phandle
 +fi
 +
 +if test "${param_uart3_pins}" = "b"; then
 +	if test "${param_uart3_rtscts}" = "1"; then
-+		fdt get value tmp_phandle1 /soc@1c00000/pinctrl@1c20800/uart3_pins_b phandle
-+		fdt get value tmp_phandle2 /soc@1c00000/pinctrl@1c20800/uart3_pins_b_rts_cts phandle
-+		fdt set /soc@1c00000/serial@1c28c00 pinctrl-names "default" "default"
-+		fdt set /soc@1c00000/serial@1c28c00 pinctrl-0 "<${tmp_phandle1}>"
-+		fdt set /soc@1c00000/serial@1c28c00 pinctrl-1 "<${tmp_phandle2}>"
++		fdt get value tmp_phandle1 /soc/pinctrl@1c20800/uart3_pins_b phandle
++		fdt get value tmp_phandle2 /soc/pinctrl@1c20800/uart3_pins_b_rts_cts phandle
++		fdt set /soc/serial@1c28c00 pinctrl-names "default" "default"
++		fdt set /soc/serial@1c28c00 pinctrl-0 "<${tmp_phandle1}>"
++		fdt set /soc/serial@1c28c00 pinctrl-1 "<${tmp_phandle2}>"
 +		env delete tmp_phandle1 tmp_phandle2
 +	else
-+		fdt get value tmp_phandle /soc@1c00000/pinctrl@1c20800/uart3_pins_b phandle
-+		fdt set /soc@1c00000/serial@1c28c00 pinctrl-0 "<${tmp_phandle}>"
++		fdt get value tmp_phandle /soc/pinctrl@1c20800/uart3_pins_b phandle
++		fdt set /soc/serial@1c28c00 pinctrl-0 "<${tmp_phandle}>"
 +		env delete tmp_phandle
 +	fi
 +else
 +	if test "${param_uart3_rtscts}" = "1"; then
-+		fdt get value tmp_phandle1 /soc@1c00000/pinctrl@1c20800/uart3_pins_a phandle
-+		fdt get value tmp_phandle2 /soc@1c00000/pinctrl@1c20800/uart3_pins_a_rts_cts phandle
-+		fdt set /soc@1c00000/serial@1c28c00 pinctrl-names "default" "default"
-+		fdt set /soc@1c00000/serial@1c28c00 pinctrl-0 "<${tmp_phandle1}>"
-+		fdt set /soc@1c00000/serial@1c28c00 pinctrl-1 "<${tmp_phandle2}>"
++		fdt get value tmp_phandle1 /soc/pinctrl@1c20800/uart3_pins_a phandle
++		fdt get value tmp_phandle2 /soc/pinctrl@1c20800/uart3_pins_a_rts_cts phandle
++		fdt set /soc/serial@1c28c00 pinctrl-names "default" "default"
++		fdt set /soc/serial@1c28c00 pinctrl-0 "<${tmp_phandle1}>"
++		fdt set /soc/serial@1c28c00 pinctrl-1 "<${tmp_phandle2}>"
 +		env delete tmp_phandle1 tmp_phandle2
 +	fi
 +fi
 +
 +if test "${param_uart4_pins}" = "b"; then
-+	fdt get value tmp_phandle /soc@1c00000/pinctrl@1c20800/uart4@1 phandle
-+	fdt set /soc@1c00000/serial@1c29000 pinctrl-0 "<${tmp_phandle}>"
++	fdt get value tmp_phandle /soc/pinctrl@1c20800/uart4@1 phandle
++	fdt set /soc/serial@1c29000 pinctrl-0 "<${tmp_phandle}>"
 +	env delete tmp_phandle
 +fi
 diff --git a/arch/arm/boot/dts/overlay/sun4i-a10-i2c1.dts b/arch/arm/boot/dts/overlay/sun4i-a10-i2c1.dts
 new file mode 100644
-index 0000000..0b31052
+index 0000000..4c104bf
 --- /dev/null
 +++ b/arch/arm/boot/dts/overlay/sun4i-a10-i2c1.dts
 @@ -0,0 +1,22 @@
@@ -1368,14 +1368,14 @@ index 0000000..0b31052
 +		target = <&i2c1>;
 +		__overlay__ {
 +			pinctrl-names = "default";
-+			pinctrl-0 = <&i2c1_pins_a>;
++			pinctrl-0 = <&i2c1_pins>;
 +			status = "okay";
 +		};
 +	};
 +};
 diff --git a/arch/arm/boot/dts/overlay/sun4i-a10-i2c2.dts b/arch/arm/boot/dts/overlay/sun4i-a10-i2c2.dts
 new file mode 100644
-index 0000000..04b489f
+index 0000000..1c2c3e9
 --- /dev/null
 +++ b/arch/arm/boot/dts/overlay/sun4i-a10-i2c2.dts
 @@ -0,0 +1,22 @@
@@ -1396,7 +1396,7 @@ index 0000000..04b489f
 +		target = <&i2c2>;
 +		__overlay__ {
 +			pinctrl-names = "default";
-+			pinctrl-0 = <&i2c2_pins_a>;
++			pinctrl-0 = <&i2c2_pins>;
 +			status = "okay";
 +		};
 +	};
@@ -1547,7 +1547,7 @@ index 0000000..6031fc5
 +};
 diff --git a/arch/arm/boot/dts/overlay/sun4i-a10-pwm.dts b/arch/arm/boot/dts/overlay/sun4i-a10-pwm.dts
 new file mode 100644
-index 0000000..1927fc5
+index 0000000..ba88500
 --- /dev/null
 +++ b/arch/arm/boot/dts/overlay/sun4i-a10-pwm.dts
 @@ -0,0 +1,15 @@
@@ -1561,7 +1561,7 @@ index 0000000..1927fc5
 +		target = <&pwm>;
 +		__overlay__ {
 +			pinctrl-names = "default";
-+			pinctrl-0 = <&pwm0_pins_a>, <&pwm1_pins_a>;
++			pinctrl-0 = <&pwm0_pin>, <&pwm1_pin>;
 +			status = "okay";
 +		};
 +	};
@@ -1612,7 +1612,7 @@ index 0000000..234dfc8
 +};
 diff --git a/arch/arm/boot/dts/overlay/sun4i-a10-spi-jedec-nor.dts b/arch/arm/boot/dts/overlay/sun4i-a10-spi-jedec-nor.dts
 new file mode 100644
-index 0000000..617bf75
+index 0000000..ee4ff6f
 --- /dev/null
 +++ b/arch/arm/boot/dts/overlay/sun4i-a10-spi-jedec-nor.dts
 @@ -0,0 +1,57 @@
@@ -1636,7 +1636,7 @@ index 0000000..617bf75
 +		__overlay__ {
 +			#address-cells = <1>;
 +			#size-cells = <0>;
-+			spiflash {
++			spiflash@0 {
 +				compatible = "jedec,spi-nor";
 +				status = "disabled";
 +				reg = <0>;
@@ -1650,7 +1650,7 @@ index 0000000..617bf75
 +		__overlay__ {
 +			#address-cells = <1>;
 +			#size-cells = <0>;
-+			spiflash {
++			spiflash@0 {
 +				compatible = "jedec,spi-nor";
 +				status = "disabled";
 +				reg = <0>;
@@ -1664,7 +1664,7 @@ index 0000000..617bf75
 +		__overlay__ {
 +			#address-cells = <1>;
 +			#size-cells = <0>;
-+			spiflash {
++			spiflash@0 {
 +				compatible = "jedec,spi-nor";
 +				status = "disabled";
 +				reg = <0>;
@@ -1675,7 +1675,7 @@ index 0000000..617bf75
 +};
 diff --git a/arch/arm/boot/dts/overlay/sun4i-a10-spi-spidev.dts b/arch/arm/boot/dts/overlay/sun4i-a10-spi-spidev.dts
 new file mode 100644
-index 0000000..a570c86
+index 0000000..5667aec
 --- /dev/null
 +++ b/arch/arm/boot/dts/overlay/sun4i-a10-spi-spidev.dts
 @@ -0,0 +1,57 @@
@@ -1699,7 +1699,7 @@ index 0000000..a570c86
 +		__overlay__ {
 +			#address-cells = <1>;
 +			#size-cells = <0>;
-+			spidev {
++			spidev@0 {
 +				compatible = "spidev";
 +				status = "disabled";
 +				reg = <0>;
@@ -1713,7 +1713,7 @@ index 0000000..a570c86
 +		__overlay__ {
 +			#address-cells = <1>;
 +			#size-cells = <0>;
-+			spidev {
++			spidev@0 {
 +				compatible = "spidev";
 +				status = "disabled";
 +				reg = <0>;
@@ -1727,7 +1727,7 @@ index 0000000..a570c86
 +		__overlay__ {
 +			#address-cells = <1>;
 +			#size-cells = <0>;
-+			spidev {
++			spidev@0 {
 +				compatible = "spidev";
 +				status = "disabled";
 +				reg = <0>;
@@ -1738,7 +1738,7 @@ index 0000000..a570c86
 +};
 diff --git a/arch/arm/boot/dts/overlay/sun4i-a10-spi0.dts b/arch/arm/boot/dts/overlay/sun4i-a10-spi0.dts
 new file mode 100644
-index 0000000..132f780
+index 0000000..cad50d8
 --- /dev/null
 +++ b/arch/arm/boot/dts/overlay/sun4i-a10-spi0.dts
 @@ -0,0 +1,23 @@
@@ -1760,14 +1760,14 @@ index 0000000..132f780
 +		__overlay__ {
 +			status = "okay";
 +			pinctrl-names = "default", "default";
-+			pinctrl-0 = <&spi0_pins_a>;
-+			pinctrl-1 = <&spi0_cs0_pins_a>;
++			pinctrl-0 = <&spi0_pi_pins>;
++			pinctrl-1 = <&spi0_cs0_pi_pin>;
 +		};
 +	};
 +};
 diff --git a/arch/arm/boot/dts/overlay/sun4i-a10-spi1.dts b/arch/arm/boot/dts/overlay/sun4i-a10-spi1.dts
 new file mode 100644
-index 0000000..1d5c9df
+index 0000000..8c606d6
 --- /dev/null
 +++ b/arch/arm/boot/dts/overlay/sun4i-a10-spi1.dts
 @@ -0,0 +1,22 @@
@@ -1789,7 +1789,7 @@ index 0000000..1d5c9df
 +		__overlay__ {
 +			status = "okay";
 +			pinctrl-names = "default";
-+			pinctrl-0 = <&spi1_pins_a>, <&spi1_cs0_pins_a>;
++			pinctrl-0 = <&spi1_pins>, <&spi1_cs0_pin>;
 +		};
 +	};
 +};
@@ -2143,10 +2143,10 @@ index 0000000..9589767
 +	test "${param_spinor_spi_bus}" = "0" && setenv tmp_spi_path "spi@1c05000"
 +	test "${param_spinor_spi_bus}" = "1" && setenv tmp_spi_path "spi@1c06000"
 +	test "${param_spinor_spi_bus}" = "2" && setenv tmp_spi_path "spi@1c17000"
-+	fdt set /soc@1c00000/${tmp_spi_path} status "okay"
-+	fdt set /soc@1c00000/${tmp_spi_path}/spiflash status "okay"
++	fdt set /soc/${tmp_spi_path} status "okay"
++	fdt set /soc/${tmp_spi_path}/spiflash status "okay"
 +	if test -n "${param_spinor_max_freq}"; then
-+		fdt set /soc@1c00000/${tmp_spi_path}/spiflash spi-max-frequency "<${param_spinor_max_freq}>"
++		fdt set /soc/${tmp_spi_path}/spiflash spi-max-frequency "<${param_spinor_max_freq}>"
 +	fi
 +	env delete tmp_spi_path
 +fi
@@ -2155,37 +2155,37 @@ index 0000000..9589767
 +	test "${param_spidev_spi_bus}" = "0" && setenv tmp_spi_path "spi@1c05000"
 +	test "${param_spidev_spi_bus}" = "1" && setenv tmp_spi_path "spi@1c06000"
 +	test "${param_spidev_spi_bus}" = "2" && setenv tmp_spi_path "spi@1c17000"
-+	fdt set /soc@1c00000/${tmp_spi_path} status "okay"
-+	fdt set /soc@1c00000/${tmp_spi_path}/spidev status "okay"
++	fdt set /soc/${tmp_spi_path} status "okay"
++	fdt set /soc/${tmp_spi_path}/spidev status "okay"
 +	if test -n "${param_spidev_max_freq}"; then
-+		fdt set /soc@1c00000/${tmp_spi_path}/spidev spi-max-frequency "<${param_spidev_max_freq}>"
++		fdt set /soc/${tmp_spi_path}/spidev spi-max-frequency "<${param_spidev_max_freq}>"
 +	fi
 +	env delete tmp_spi_path
 +fi
 +
 +if test "${param_uart1_pins}" = "b"; then
-+	fdt get value tmp_phandle /soc@1c00000/pinctrl@1c28400/uart1@1 phandle
-+	fdt set /soc@1c00000/serial@1c28400 pinctrl-0 "<${tmp_phandle}>"
++	fdt get value tmp_phandle /soc/pinctrl@1c28400/uart1@1 phandle
++	fdt set /soc/serial@1c28400 pinctrl-0 "<${tmp_phandle}>"
 +	env delete tmp_phandle
 +fi
 +
 +if test "${param_uart2_rtscts}" = "1"; then
-+	fdt get value tmp_phandle1 /soc@1c00000/pinctrl@1c20800/uart2@0 phandle
-+	fdt get value tmp_phandle2 /soc@1c00000/pinctrl@1c20800/uart2-cts-rts@0 phandle
-+	fdt set /soc@1c00000/serial@1c28800 pinctrl-0 "<${tmp_phandle1}>, <${tmp_phandle2}>"
++	fdt get value tmp_phandle1 /soc/pinctrl@1c20800/uart2@0 phandle
++	fdt get value tmp_phandle2 /soc/pinctrl@1c20800/uart2-cts-rts@0 phandle
++	fdt set /soc/serial@1c28800 pinctrl-0 "<${tmp_phandle1}>, <${tmp_phandle2}>"
 +	env delete tmp_phandle1 tmp_phandle2
 +fi
 +
 +if test "${param_uart3_rtscts}" = "1"; then
-+	fdt get value tmp_phandle1 /soc@1c00000/pinctrl@1c20800/uart3@0 phandle
-+	fdt get value tmp_phandle2 /soc@1c00000/pinctrl@1c20800/uart3-cts-rts@0 phandle
-+	fdt set /soc@1c00000/serial@1c28c00 pinctrl-names "default" "default"
-+	fdt set /soc@1c00000/serial@1c28c00 pinctrl-0 "<${tmp_phandle1}>, <${tmp_phandle2}>"
++	fdt get value tmp_phandle1 /soc/pinctrl@1c20800/uart3@0 phandle
++	fdt get value tmp_phandle2 /soc/pinctrl@1c20800/uart3-cts-rts@0 phandle
++	fdt set /soc/serial@1c28c00 pinctrl-names "default" "default"
++	fdt set /soc/serial@1c28c00 pinctrl-0 "<${tmp_phandle1}>, <${tmp_phandle2}>"
 +	env delete tmp_phandle1 tmp_phandle2
 +fi
 diff --git a/arch/arm/boot/dts/overlay/sun5i-a13-i2c1.dts b/arch/arm/boot/dts/overlay/sun5i-a13-i2c1.dts
 new file mode 100644
-index 0000000..e674962
+index 0000000..444c32c
 --- /dev/null
 +++ b/arch/arm/boot/dts/overlay/sun5i-a13-i2c1.dts
 @@ -0,0 +1,22 @@
@@ -2206,14 +2206,14 @@ index 0000000..e674962
 +		target = <&i2c1>;
 +		__overlay__ {
 +			pinctrl-names = "default";
-+			pinctrl-0 = <&i2c1_pins_a>;
++			pinctrl-0 = <&i2c1_pins>;
 +			status = "okay";
 +		};
 +	};
 +};
 diff --git a/arch/arm/boot/dts/overlay/sun5i-a13-i2c2.dts b/arch/arm/boot/dts/overlay/sun5i-a13-i2c2.dts
 new file mode 100644
-index 0000000..497f618
+index 0000000..7a30681
 --- /dev/null
 +++ b/arch/arm/boot/dts/overlay/sun5i-a13-i2c2.dts
 @@ -0,0 +1,22 @@
@@ -2234,14 +2234,14 @@ index 0000000..497f618
 +		target = <&i2c2>;
 +		__overlay__ {
 +			pinctrl-names = "default";
-+			pinctrl-0 = <&i2c2_pins_a>;
++			pinctrl-0 = <&i2c2_pins>;
 +			status = "okay";
 +		};
 +	};
 +};
 diff --git a/arch/arm/boot/dts/overlay/sun5i-a13-nand.dts b/arch/arm/boot/dts/overlay/sun5i-a13-nand.dts
 new file mode 100644
-index 0000000..669527a
+index 0000000..0c5fc89
 --- /dev/null
 +++ b/arch/arm/boot/dts/overlay/sun5i-a13-nand.dts
 @@ -0,0 +1,60 @@
@@ -2257,7 +2257,7 @@ index 0000000..669527a
 +			#address-cells = <1>;
 +			#size-cells = <0>;
 +			pinctrl-names = "default";
-+			pinctrl-0 = <&nand_pins_a>, <&nand_cs0_pins_a>, <&nand_rb0_pins_a>;
++			pinctrl-0 = <&nand_pins>, <&nand_cs0_pin>, <&nand_rb0_pin>;
 +			status = "okay";
 +
 +			nand@0 {
@@ -2307,7 +2307,7 @@ index 0000000..669527a
 +};
 diff --git a/arch/arm/boot/dts/overlay/sun5i-a13-pwm.dts b/arch/arm/boot/dts/overlay/sun5i-a13-pwm.dts
 new file mode 100644
-index 0000000..711ff9c
+index 0000000..54f5d51
 --- /dev/null
 +++ b/arch/arm/boot/dts/overlay/sun5i-a13-pwm.dts
 @@ -0,0 +1,15 @@
@@ -2321,14 +2321,14 @@ index 0000000..711ff9c
 +		target = <&pwm>;
 +		__overlay__ {
 +			pinctrl-names = "default";
-+			pinctrl-0 = <&pwm0_pins>;
++			pinctrl-0 = <&pwm0_pin>;
 +			status = "okay";
 +		};
 +	};
 +};
 diff --git a/arch/arm/boot/dts/overlay/sun5i-a13-spi-jedec-nor.dts b/arch/arm/boot/dts/overlay/sun5i-a13-spi-jedec-nor.dts
 new file mode 100644
-index 0000000..cece796
+index 0000000..8cebb0b
 --- /dev/null
 +++ b/arch/arm/boot/dts/overlay/sun5i-a13-spi-jedec-nor.dts
 @@ -0,0 +1,57 @@
@@ -2352,7 +2352,7 @@ index 0000000..cece796
 +		__overlay__ {
 +			#address-cells = <1>;
 +			#size-cells = <0>;
-+			spiflash {
++			spiflash@0 {
 +				compatible = "jedec,spi-nor";
 +				status = "disabled";
 +				reg = <0>;
@@ -2366,7 +2366,7 @@ index 0000000..cece796
 +		__overlay__ {
 +			#address-cells = <1>;
 +			#size-cells = <0>;
-+			spiflash {
++			spiflash@0 {
 +				compatible = "jedec,spi-nor";
 +				status = "disabled";
 +				reg = <0>;
@@ -2380,7 +2380,7 @@ index 0000000..cece796
 +		__overlay__ {
 +			#address-cells = <1>;
 +			#size-cells = <0>;
-+			spiflash {
++			spiflash@0 {
 +				compatible = "jedec,spi-nor";
 +				status = "disabled";
 +				reg = <0>;
@@ -2391,7 +2391,7 @@ index 0000000..cece796
 +};
 diff --git a/arch/arm/boot/dts/overlay/sun5i-a13-spi-spidev.dts b/arch/arm/boot/dts/overlay/sun5i-a13-spi-spidev.dts
 new file mode 100644
-index 0000000..6294ee3
+index 0000000..ced1a0e
 --- /dev/null
 +++ b/arch/arm/boot/dts/overlay/sun5i-a13-spi-spidev.dts
 @@ -0,0 +1,57 @@
@@ -2415,7 +2415,7 @@ index 0000000..6294ee3
 +		__overlay__ {
 +			#address-cells = <1>;
 +			#size-cells = <0>;
-+			spidev {
++			spidev@0 {
 +				compatible = "spidev";
 +				status = "disabled";
 +				reg = <0>;
@@ -2429,7 +2429,7 @@ index 0000000..6294ee3
 +		__overlay__ {
 +			#address-cells = <1>;
 +			#size-cells = <0>;
-+			spidev {
++			spidev@0 {
 +				compatible = "spidev";
 +				status = "disabled";
 +				reg = <0>;
@@ -2443,7 +2443,7 @@ index 0000000..6294ee3
 +		__overlay__ {
 +			#address-cells = <1>;
 +			#size-cells = <0>;
-+			spidev {
++			spidev@0 {
 +				compatible = "spidev";
 +				status = "disabled";
 +				reg = <0>;
@@ -2543,7 +2543,7 @@ index 0000000..cc0af5d
 +};
 diff --git a/arch/arm/boot/dts/overlay/sun5i-a13-spi2.dts b/arch/arm/boot/dts/overlay/sun5i-a13-spi2.dts
 new file mode 100644
-index 0000000..e8535be
+index 0000000..6cf5c41
 --- /dev/null
 +++ b/arch/arm/boot/dts/overlay/sun5i-a13-spi2.dts
 @@ -0,0 +1,22 @@
@@ -2565,7 +2565,7 @@ index 0000000..e8535be
 +		__overlay__ {
 +			status = "okay";
 +			pinctrl-names = "default";
-+			pinctrl-0 = <&spi2_pins_a>, <&spi2_cs0_pins_a>;
++			pinctrl-0 = <&spi2_pe_pins>, <&spi2_cs0_pe_pin>;
 +		};
 +	};
 +};
@@ -2609,7 +2609,7 @@ index 0000000..6edad42
 +};
 diff --git a/arch/arm/boot/dts/overlay/sun5i-a13-uart1.dts b/arch/arm/boot/dts/overlay/sun5i-a13-uart1.dts
 new file mode 100644
-index 0000000..b165d5e
+index 0000000..675b701
 --- /dev/null
 +++ b/arch/arm/boot/dts/overlay/sun5i-a13-uart1.dts
 @@ -0,0 +1,22 @@
@@ -2630,14 +2630,14 @@ index 0000000..b165d5e
 +		target = <&uart1>;
 +		 __overlay__ {
 +			pinctrl-names = "default";
-+			pinctrl-0 = <&uart1_pins_a>;
++			pinctrl-0 = <&uart1_pe_pins>;
 +			status = "okay";
 +		};
 +	};
 +};
 diff --git a/arch/arm/boot/dts/overlay/sun5i-a13-uart2.dts b/arch/arm/boot/dts/overlay/sun5i-a13-uart2.dts
 new file mode 100644
-index 0000000..fa2d0f1
+index 0000000..b3c4e3d
 --- /dev/null
 +++ b/arch/arm/boot/dts/overlay/sun5i-a13-uart2.dts
 @@ -0,0 +1,22 @@
@@ -2658,14 +2658,14 @@ index 0000000..fa2d0f1
 +		target = <&uart2>;
 +		 __overlay__ {
 +			pinctrl-names = "default";
-+			pinctrl-0 = <&uart2_pins_a>;
++			pinctrl-0 = <&uart2_pd_pins>;
 +			status = "okay";
 +		};
 +	};
 +};
 diff --git a/arch/arm/boot/dts/overlay/sun5i-a13-uart3.dts b/arch/arm/boot/dts/overlay/sun5i-a13-uart3.dts
 new file mode 100644
-index 0000000..d474544
+index 0000000..15c25d0
 --- /dev/null
 +++ b/arch/arm/boot/dts/overlay/sun5i-a13-uart3.dts
 @@ -0,0 +1,22 @@
@@ -2686,7 +2686,7 @@ index 0000000..d474544
 +		target = <&uart3>;
 +		 __overlay__ {
 +			pinctrl-names = "default";
-+			pinctrl-0 = <&uart3_pins_a>;
++			pinctrl-0 = <&uart3_pg_pins>;
 +			status = "okay";
 +		};
 +	};
@@ -2758,13 +2758,13 @@ index 0000000..db3cec8
 +	test "${param_spinor_spi_bus}" = "0" && setenv tmp_spi_path "spi@1c05000"
 +	test "${param_spinor_spi_bus}" = "1" && setenv tmp_spi_path "spi@1c06000"
 +	test "${param_spinor_spi_bus}" = "2" && setenv tmp_spi_path "spi@1c17000"
-+	fdt set /soc@1c00000/${tmp_spi_path} status "okay"
-+	fdt set /soc@1c00000/${tmp_spi_path}/spiflash status "okay"
++	fdt set /soc/${tmp_spi_path} status "okay"
++	fdt set /soc/${tmp_spi_path}/spiflash status "okay"
 +	if test -n "${param_spinor_max_freq}"; then
-+		fdt set /soc@1c00000/${tmp_spi_path}/spiflash spi-max-frequency "<${param_spinor_max_freq}>"
++		fdt set /soc/${tmp_spi_path}/spiflash spi-max-frequency "<${param_spinor_max_freq}>"
 +	fi
 +	if test "${param_spinor_spi_bus}" = "0" && test "${param_spinor_spi_cs}" = "1"; then
-+		fdt set /soc@1c00000/${tmp_spi_path}/spiflash reg "<1>"
++		fdt set /soc/${tmp_spi_path}/spiflash reg "<1>"
 +	fi
 +	env delete tmp_spi_path
 +fi
@@ -2773,22 +2773,22 @@ index 0000000..db3cec8
 +	test "${param_spidev_spi_bus}" = "0" && setenv tmp_spi_path "spi@1c05000"
 +	test "${param_spidev_spi_bus}" = "1" && setenv tmp_spi_path "spi@1c06000"
 +	test "${param_spidev_spi_bus}" = "2" && setenv tmp_spi_path "spi@1c17000"
-+	fdt set /soc@1c00000/${tmp_spi_path} status "okay"
-+	fdt set /soc@1c00000/${tmp_spi_path}/spidev status "okay"
++	fdt set /soc/${tmp_spi_path} status "okay"
++	fdt set /soc/${tmp_spi_path}/spidev status "okay"
 +	if test -n "${param_spidev_max_freq}"; then
-+		fdt set /soc@1c00000/${tmp_spi_path}/spidev spi-max-frequency "<${param_spidev_max_freq}>"
++		fdt set /soc/${tmp_spi_path}/spidev spi-max-frequency "<${param_spidev_max_freq}>"
 +	fi
 +	if test "${param_spidev_spi_bus}" = "0" && test "${param_spidev_spi_cs}" = "1"; then
-+		fdt set /soc@1c00000/${tmp_spi_path}/spidev reg "<1>"
++		fdt set /soc/${tmp_spi_path}/spidev reg "<1>"
 +	fi
 +	env delete tmp_spi_path
 +fi
 +
 +if test "${param_spi2_bus_pins}" = "b"; then
-+	fdt get value tmp_phandle1 /soc@1c00000/pinctrl@1c20800/spi2@1 phandle
-+	fdt get value tmp_phandle2 /soc@1c00000/pinctrl@1c20800/spi2_cs0@1 phandle
-+	fdt set /soc@1c00000/spi@1c17000 pinctrl-0 "<${tmp_phandle1}>"
-+	fdt set /soc@1c00000/spi@1c17000 pinctrl-1 "<${tmp_phandle2}>"
++	fdt get value tmp_phandle1 /soc/pinctrl@1c20800/spi2@1 phandle
++	fdt get value tmp_phandle2 /soc/pinctrl@1c20800/spi2_cs0@1 phandle
++	fdt set /soc/spi@1c17000 pinctrl-0 "<${tmp_phandle1}>"
++	fdt set /soc/spi@1c17000 pinctrl-1 "<${tmp_phandle2}>"
 +	env delete tmp_phandle1 tmp_phandle2
 +fi
 +
@@ -2796,8 +2796,8 @@ index 0000000..db3cec8
 +	setenv tmp_bank "${param_pps_pin}"
 +	setenv tmp_pin "${param_pps_pin}"
 +	run decompose_pin
-+	fdt set /soc@1c00000/pinctrl@1c20800/pps_pins pins "${param_pps_pin}"
-+	fdt get value tmp_phandle /soc@1c00000/pinctrl@1c20800 phandle
++	fdt set /soc/pinctrl@1c20800/pps_pins pins "${param_pps_pin}"
++	fdt get value tmp_phandle /soc/pinctrl@1c20800 phandle
 +	fdt set /pps@0 gpios "<${tmp_phandle} ${tmp_bank} ${tmp_pin} 0>"
 +	env delete tmp_pin tmp_bank tmp_phandle
 +fi
@@ -2807,14 +2807,14 @@ index 0000000..db3cec8
 +fi
 +
 +if test "${param_pwm_pins}" = "0"; then
-+	fdt get value tmp_phandle /soc@1c00000/pinctrl@1c20800/pwm0@0
-+	fdt set /soc@1c00000/pwm@1c20e00 pinctrl-0 "<${tmp_phandle}>"
++	fdt get value tmp_phandle /soc/pinctrl@1c20800/pwm0@0
++	fdt set /soc/pwm@1c20e00 pinctrl-0 "<${tmp_phandle}>"
 +	env delete tmp_phandle
 +fi
 +
 +if test "${param_pwm_pins}" = "1"; then
-+	fdt get value tmp_phandle /soc@1c00000/pinctrl@1c20800/pwm1@0
-+	fdt set /soc@1c00000/pwm@1c20e00 pinctrl-0 "<${tmp_phandle}>"
++	fdt get value tmp_phandle /soc/pinctrl@1c20800/pwm1@0
++	fdt set /soc/pwm@1c20e00 pinctrl-0 "<${tmp_phandle}>"
 +	env delete tmp_phandle
 +fi
 +
@@ -2822,8 +2822,8 @@ index 0000000..db3cec8
 +	setenv tmp_bank "${param_w1_pin}"
 +	setenv tmp_pin "${param_w1_pin}"
 +	run decompose_pin
-+	fdt set /soc@1c00000/pinctrl@1c20800/w1_pins pins "${param_w1_pin}"
-+	fdt get value tmp_phandle /soc@1c00000/pinctrl@1c20800 phandle
++	fdt set /soc/pinctrl@1c20800/w1_pins pins "${param_w1_pin}"
++	fdt get value tmp_phandle /soc/pinctrl@1c20800 phandle
 +	fdt set /onewire@0 gpios "<${tmp_phandle} ${tmp_bank} ${tmp_pin} 0>"
 +	env delete tmp_pin tmp_bank tmp_phandle
 +fi
@@ -2832,52 +2832,52 @@ index 0000000..db3cec8
 +	setenv tmp_bank "${param_mmc2_cd_pin}"
 +	setenv tmp_pin "${param_mmc2_cd_pin}"
 +	run decompose_pin
-+	fdt get value tmp_phandle /soc@1c00000/pinctrl@1c20800 phandle
-+	fdt set /soc@1c00000/mmc@1c11000 cd-gpios "<${tmp_phandle} ${tmp_bank} ${tmp_pin} 1>"
++	fdt get value tmp_phandle /soc/pinctrl@1c20800 phandle
++	fdt set /soc/mmc@1c11000 cd-gpios "<${tmp_phandle} ${tmp_bank} ${tmp_pin} 1>"
 +fi
 +
 +if test "${param_mmc2_non_removable}" = "1"; then
-+	fdt rm /soc@1c00000/mmc@1c11000 cd-gpios
-+	fdt set /soc@1c00000/mmc@1c11000 non-removable
++	fdt rm /soc/mmc@1c11000 cd-gpios
++	fdt set /soc/mmc@1c11000 non-removable
 +fi
 +
 +if test "${param_w1_pin_int_pullup}" = "1"; then
-+	fdt set /soc@1c00000/pinctrl@1c20800/w1_pins bias-pull-up
++	fdt set /soc/pinctrl@1c20800/w1_pins bias-pull-up
 +fi
 +
 +if test "${param_uart2_rtscts}" = "1"; then
-+	fdt get value tmp_phandle /soc@1c00000/pinctrl@1c20800/uart2@0 phandle
-+	fdt set /soc@1c00000/serial@1c28800 pinctrl-0 "<${tmp_phandle}>"
++	fdt get value tmp_phandle /soc/pinctrl@1c20800/uart2@0 phandle
++	fdt set /soc/serial@1c28800 pinctrl-0 "<${tmp_phandle}>"
 +	env delete tmp_phandle
 +fi
 +
 +if test "${param_uart3_pins}" = "b"; then
 +	if test "${param_uart3_rtscts}" = "1"; then
-+		fdt get value tmp_phandle1 /soc@1c00000/pinctrl@1c20800/uart3_pins_b phandle
-+		fdt get value tmp_phandle2 /soc@1c00000/pinctrl@1c20800/uart3_pins_b_rts_cts phandle
-+		fdt set /soc@1c00000/serial@1c28c00 pinctrl-names "default" "default"
-+		fdt set /soc@1c00000/serial@1c28c00 pinctrl-0 "<${tmp_phandle1}>"
-+		fdt set /soc@1c00000/serial@1c28c00 pinctrl-1 "<${tmp_phandle2}>"
++		fdt get value tmp_phandle1 /soc/pinctrl@1c20800/uart3_pins_b phandle
++		fdt get value tmp_phandle2 /soc/pinctrl@1c20800/uart3_pins_b_rts_cts phandle
++		fdt set /soc/serial@1c28c00 pinctrl-names "default" "default"
++		fdt set /soc/serial@1c28c00 pinctrl-0 "<${tmp_phandle1}>"
++		fdt set /soc/serial@1c28c00 pinctrl-1 "<${tmp_phandle2}>"
 +		env delete tmp_phandle1 tmp_phandle2
 +	else
-+		fdt get value tmp_phandle /soc@1c00000/pinctrl@1c20800/uart3_pins_b phandle
-+		fdt set /soc@1c00000/serial@1c28c00 pinctrl-0 "<${tmp_phandle}>"
++		fdt get value tmp_phandle /soc/pinctrl@1c20800/uart3_pins_b phandle
++		fdt set /soc/serial@1c28c00 pinctrl-0 "<${tmp_phandle}>"
 +		env delete tmp_phandle
 +	fi
 +else
 +	if test "${param_uart3_rtscts}" = "1"; then
-+		fdt get value tmp_phandle1 /soc@1c00000/pinctrl@1c20800/uart3_pins_a_2 phandle
-+		fdt get value tmp_phandle2 /soc@1c00000/pinctrl@1c20800/uart3_pins_a_rts_cts phandle
-+		fdt set /soc@1c00000/serial@1c28c00 pinctrl-names "default" "default"
-+		fdt set /soc@1c00000/serial@1c28c00 pinctrl-0 "<${tmp_phandle1}>"
-+		fdt set /soc@1c00000/serial@1c28c00 pinctrl-1 "<${tmp_phandle2}>"
++		fdt get value tmp_phandle1 /soc/pinctrl@1c20800/uart3_pins_a_2 phandle
++		fdt get value tmp_phandle2 /soc/pinctrl@1c20800/uart3_pins_a_rts_cts phandle
++		fdt set /soc/serial@1c28c00 pinctrl-names "default" "default"
++		fdt set /soc/serial@1c28c00 pinctrl-0 "<${tmp_phandle1}>"
++		fdt set /soc/serial@1c28c00 pinctrl-1 "<${tmp_phandle2}>"
 +		env delete tmp_phandle1 tmp_phandle2
 +	fi
 +fi
 +
 +if test "${param_uart4_pins}" = "b"; then
-+	fdt get value tmp_phandle /soc@1c00000/pinctrl@1c20800/uart4@1 phandle
-+	fdt set /soc@1c00000/serial@1c29000 pinctrl-0 "<${tmp_phandle}>"
++	fdt get value tmp_phandle /soc/pinctrl@1c20800/uart4@1 phandle
++	fdt set /soc/serial@1c29000 pinctrl-0 "<${tmp_phandle}>"
 +	env delete tmp_phandle
 +fi
 diff --git a/arch/arm/boot/dts/overlay/sun7i-a20-i2c1.dts b/arch/arm/boot/dts/overlay/sun7i-a20-i2c1.dts
@@ -3234,7 +3234,7 @@ index 0000000..fe3e2bd
 +};
 diff --git a/arch/arm/boot/dts/overlay/sun7i-a20-pwm.dts b/arch/arm/boot/dts/overlay/sun7i-a20-pwm.dts
 new file mode 100644
-index 0000000..b9978c6
+index 0000000..b0cfe4d
 --- /dev/null
 +++ b/arch/arm/boot/dts/overlay/sun7i-a20-pwm.dts
 @@ -0,0 +1,15 @@
@@ -3248,7 +3248,7 @@ index 0000000..b9978c6
 +		target = <&pwm>;
 +		__overlay__ {
 +			pinctrl-names = "default";
-+			pinctrl-0 = <&pwm0_pins>, <&pwm1_pins>;
++			pinctrl-0 = <&pwm0_pin>, <&pwm1_pin>;
 +			status = "okay";
 +		};
 +	};
@@ -3321,7 +3321,7 @@ index 0000000..c0a4ba2
 +};
 diff --git a/arch/arm/boot/dts/overlay/sun7i-a20-spi-jedec-nor.dts b/arch/arm/boot/dts/overlay/sun7i-a20-spi-jedec-nor.dts
 new file mode 100644
-index 0000000..efd147c
+index 0000000..b91097e
 --- /dev/null
 +++ b/arch/arm/boot/dts/overlay/sun7i-a20-spi-jedec-nor.dts
 @@ -0,0 +1,57 @@
@@ -3345,7 +3345,7 @@ index 0000000..efd147c
 +		__overlay__ {
 +			#address-cells = <1>;
 +			#size-cells = <0>;
-+			spiflash {
++			spiflash@0 {
 +				compatible = "jedec,spi-nor";
 +				status = "disabled";
 +				reg = <0>;
@@ -3359,7 +3359,7 @@ index 0000000..efd147c
 +		__overlay__ {
 +			#address-cells = <1>;
 +			#size-cells = <0>;
-+			spiflash {
++			spiflash@0 {
 +				compatible = "jedec,spi-nor";
 +				status = "disabled";
 +				reg = <0>;
@@ -3373,7 +3373,7 @@ index 0000000..efd147c
 +		__overlay__ {
 +			#address-cells = <1>;
 +			#size-cells = <0>;
-+			spiflash {
++			spiflash@0 {
 +				compatible = "jedec,spi-nor";
 +				status = "disabled";
 +				reg = <0>;
@@ -3384,7 +3384,7 @@ index 0000000..efd147c
 +};
 diff --git a/arch/arm/boot/dts/overlay/sun7i-a20-spi-spidev.dts b/arch/arm/boot/dts/overlay/sun7i-a20-spi-spidev.dts
 new file mode 100644
-index 0000000..f8faa97
+index 0000000..a3073b2
 --- /dev/null
 +++ b/arch/arm/boot/dts/overlay/sun7i-a20-spi-spidev.dts
 @@ -0,0 +1,57 @@
@@ -3408,7 +3408,7 @@ index 0000000..f8faa97
 +		__overlay__ {
 +			#address-cells = <1>;
 +			#size-cells = <0>;
-+			spidev {
++			spidev@0 {
 +				compatible = "spidev";
 +				status = "disabled";
 +				reg = <0>;
@@ -3422,7 +3422,7 @@ index 0000000..f8faa97
 +		__overlay__ {
 +			#address-cells = <1>;
 +			#size-cells = <0>;
-+			spidev {
++			spidev@0 {
 +				compatible = "spidev";
 +				status = "disabled";
 +				reg = <0>;
@@ -3436,7 +3436,7 @@ index 0000000..f8faa97
 +		__overlay__ {
 +			#address-cells = <1>;
 +			#size-cells = <0>;
-+			spidev {
++			spidev@0 {
 +				compatible = "spidev";
 +				status = "disabled";
 +				reg = <0>;
@@ -4175,7 +4175,7 @@ index 0000000..bd8e256
 +};
 diff --git a/arch/arm/boot/dts/overlay/sun8i-h3-spi-jedec-nor.dts b/arch/arm/boot/dts/overlay/sun8i-h3-spi-jedec-nor.dts
 new file mode 100644
-index 0000000..6e53bbb
+index 0000000..95fa5f2
 --- /dev/null
 +++ b/arch/arm/boot/dts/overlay/sun8i-h3-spi-jedec-nor.dts
 @@ -0,0 +1,42 @@
@@ -4198,7 +4198,7 @@ index 0000000..6e53bbb
 +		__overlay__ {
 +			#address-cells = <1>;
 +			#size-cells = <0>;
-+			spiflash {
++			spiflash@0 {
 +				compatible = "jedec,spi-nor";
 +				reg = <0>;
 +				spi-max-frequency = <1000000>;
@@ -4212,7 +4212,7 @@ index 0000000..6e53bbb
 +		__overlay__ {
 +			#address-cells = <1>;
 +			#size-cells = <0>;
-+			spiflash {
++			spiflash@0 {
 +				compatible = "jedec,spi-nor";
 +				reg = <0>;
 +				spi-max-frequency = <1000000>;
@@ -4223,7 +4223,7 @@ index 0000000..6e53bbb
 +};
 diff --git a/arch/arm/boot/dts/overlay/sun8i-h3-spi-spidev.dts b/arch/arm/boot/dts/overlay/sun8i-h3-spi-spidev.dts
 new file mode 100644
-index 0000000..9c4c907
+index 0000000..575c970
 --- /dev/null
 +++ b/arch/arm/boot/dts/overlay/sun8i-h3-spi-spidev.dts
 @@ -0,0 +1,42 @@
@@ -4246,7 +4246,7 @@ index 0000000..9c4c907
 +		__overlay__ {
 +			#address-cells = <1>;
 +			#size-cells = <0>;
-+			spidev {
++			spidev@0 {
 +				compatible = "spidev";
 +				status = "disabled";
 +				reg = <0>;
@@ -4260,7 +4260,7 @@ index 0000000..9c4c907
 +		__overlay__ {
 +			#address-cells = <1>;
 +			#size-cells = <0>;
-+			spidev {
++			spidev@0 {
 +				compatible = "spidev";
 +				status = "disabled";
 +				reg = <0>;
@@ -4532,10 +4532,10 @@ index fa35163..89df4ff 100644
 +subdir-y	:= $(dts-dirs) overlay
 diff --git a/arch/arm64/boot/dts/allwinner/overlay/Makefile b/arch/arm64/boot/dts/allwinner/overlay/Makefile
 new file mode 100644
-index 0000000..128d32c
+index 0000000..9b6528e
 --- /dev/null
 +++ b/arch/arm64/boot/dts/allwinner/overlay/Makefile
-@@ -0,0 +1,53 @@
+@@ -0,0 +1,58 @@
 +# SPDX-License-Identifier: GPL-2.0
 +dtbo-$(CONFIG_ARCH_SUNXI) += \
 +	sun50i-a64-i2c0.dtbo \
@@ -4589,6 +4589,11 @@ index 0000000..128d32c
 +dtbotxt-$(CONFIG_ARCH_SUNXI) += \
 +	README.sun50i-a64-overlays \
 +	README.sun50i-h5-overlays
++
++targets += $(dtbo-y) $(scr-y) $(dtbotxt-y)
++
++always		:= $(dtbo-y) $(scr-y) $(dtbotxt-y)
++clean-files	:= *.dtbo *.scr
 diff --git a/arch/arm64/boot/dts/allwinner/overlay/README.sun50i-a64-overlays b/arch/arm64/boot/dts/allwinner/overlay/README.sun50i-a64-overlays
 new file mode 100644
 index 0000000..cd9dbc6
@@ -5338,7 +5343,7 @@ index 0000000..31d73e5
 +};
 diff --git a/arch/arm64/boot/dts/allwinner/overlay/sun50i-a64-spi-spidev.dts b/arch/arm64/boot/dts/allwinner/overlay/sun50i-a64-spi-spidev.dts
 new file mode 100644
-index 0000000..fe8fb14
+index 0000000..70d90a2
 --- /dev/null
 +++ b/arch/arm64/boot/dts/allwinner/overlay/sun50i-a64-spi-spidev.dts
 @@ -0,0 +1,42 @@
@@ -5361,7 +5366,7 @@ index 0000000..fe8fb14
 +		__overlay__ {
 +			#address-cells = <1>;
 +			#size-cells = <0>;
-+			spidev {
++			spidev@0 {
 +				compatible = "spidev";
 +				status = "disabled";
 +				reg = <0>;
@@ -5375,7 +5380,7 @@ index 0000000..fe8fb14
 +		__overlay__ {
 +			#address-cells = <1>;
 +			#size-cells = <0>;
-+			spidev {
++			spidev@0 {
 +				compatible = "spidev";
 +				status = "disabled";
 +				reg = <0>;
@@ -6030,7 +6035,7 @@ index 0000000..5a45808
 +};
 diff --git a/arch/arm64/boot/dts/allwinner/overlay/sun50i-h5-spi-spidev.dts b/arch/arm64/boot/dts/allwinner/overlay/sun50i-h5-spi-spidev.dts
 new file mode 100644
-index 0000000..70f435b
+index 0000000..9b5b0f2
 --- /dev/null
 +++ b/arch/arm64/boot/dts/allwinner/overlay/sun50i-h5-spi-spidev.dts
 @@ -0,0 +1,42 @@
@@ -6053,7 +6058,7 @@ index 0000000..70f435b
 +		__overlay__ {
 +			#address-cells = <1>;
 +			#size-cells = <0>;
-+			spidev {
++			spidev@0 {
 +				compatible = "spidev";
 +				status = "disabled";
 +				reg = <0>;
@@ -6067,7 +6072,7 @@ index 0000000..70f435b
 +		__overlay__ {
 +			#address-cells = <1>;
 +			#size-cells = <0>;
-+			spidev {
++			spidev@0 {
 +				compatible = "spidev";
 +				status = "disabled";
 +				reg = <0>;
@@ -6657,7 +6662,7 @@ index 0000000..4f81dbb
 +};
 diff --git a/arch/arm64/boot/dts/allwinner/overlay/sun50i-h6-spi-spidev.dts b/arch/arm64/boot/dts/allwinner/overlay/sun50i-h6-spi-spidev.dts
 new file mode 100644
-index 0000000..fd807d6
+index 0000000..bac3adc
 --- /dev/null
 +++ b/arch/arm64/boot/dts/allwinner/overlay/sun50i-h6-spi-spidev.dts
 @@ -0,0 +1,42 @@
@@ -6680,7 +6685,7 @@ index 0000000..fd807d6
 +		__overlay__ {
 +			#address-cells = <1>;
 +			#size-cells = <0>;
-+			spidev {
++			spidev@0 {
 +				compatible = "spidev";
 +				status = "disabled";
 +				reg = <0>;
@@ -6694,7 +6699,7 @@ index 0000000..fd807d6
 +		__overlay__ {
 +			#address-cells = <1>;
 +			#size-cells = <0>;
-+			spidev {
++			spidev@0 {
 +				compatible = "spidev";
 +				status = "disabled";
 +				reg = <0>;

@@ -13,13 +13,13 @@ case $BRANCH in
 	legacy)
 
 		KERNELBRANCH='branch:linux-4.19.y'
-
+		KERNELPATCHDIR='sunxi-'$BRANCH
 	;;
 
 	current)
 
 		KERNELSOURCE="https://github.com/megous/linux"
-		KERNELBRANCH="branch:orange-pi-5.3"
+		KERNELBRANCH="branch:orange-pi-5.4"
 		KERNELPATCHDIR='sunxi-'$BRANCH
 
 	;;
@@ -27,7 +27,7 @@ case $BRANCH in
 	dev)
 
 		KERNELSOURCE="https://github.com/megous/linux"
-		KERNELBRANCH="branch:orange-pi-5.4"
+		KERNELBRANCH="branch:orange-pi-5.5"
 		KERNELPATCHDIR='sunxi-'$BRANCH
 
 	;;
