@@ -19,6 +19,7 @@
 
 
 if [[ $BETA == "yes" ]];  then STABILITY="beta";	else STABILITY="stable"; fi
+if [[ $MAKE_ALL_BETA == "yes" ]]; then STABILITY="stable"; fi
 if [[ -z $KERNEL_ONLY ]]; then KERNEL_ONLY="yes"; fi
 if [[ -z $MULTITHREAD ]]; then MULTITHREAD=0; fi
 if [[ -z $START ]]; then START=0; fi
@@ -54,7 +55,9 @@ unset	LINUXFAMILY LINUXCONFIG KERNELDIR KERNELSOURCE KERNELBRANCH BOOTDIR BOOTSO
 		CRYPTROOT_SSH_UNLOCK_KEY_NAME ROOT_MAPPER NETWORK HDMI USB WIRELESS ARMBIANMONITOR FORCE_BOOTSCRIPT_UPDATE \
 		UBOOT_TOOLCHAIN2 toolchain2 BUILD_REPOSITORY_URL BUILD_REPOSITORY_COMMIT BUILD_TARGET HOST BUILD_IMAGE \
 		DEB_STORAGE REPO_STORAGE REPO_CONFIG REPOSITORY_UPDATE PACKAGE_LIST_RELEASE LOCAL_MIRROR COMPILE_ATF \
-		PACKAGE_LIST_DESKTOP_BOARD PACKAGE_LIST_DESKTOP_FAMILY ATF_COMPILE ATFPATCHDIR OFFSET BOOTSOURCEDIR
+		PACKAGE_LIST_DESKTOP_BOARD PACKAGE_LIST_DESKTOP_FAMILY ATF_COMPILE ATFPATCHDIR OFFSET BOOTSOURCEDIR BOOT_USE_BLOBS \
+		BOOT_SOC DDR_BLOB MINILOADER_BLOB BL31_BLOB BOOT_RK3328_USE_AYUFAN_ATF BOOT_USE_BLOBS BOOT_RK3399_LEGACY_HYBRID \
+		BOOT_USE_MAINLINE_ATF BOOT_USE_TPL_SPL_BLOB
 }
 
 pack_upload ()
@@ -98,13 +101,19 @@ pack_upload ()
 
 	if [[ $COMPRESS_OUTPUTIMAGE == *gz* ]]; then
 		display_alert "Compressing" "$DEST/images/${version}.img.gz" "info"
-		pigz < $DESTIMG/${version}.img > ${DESTIMG}/${version}.img.gz
+		pigz $DESTIMG/${version}.img
+	fi
+
+	if [[ $COMPRESS_OUTPUTIMAGE == *xz* ]]; then
+		display_alert "Compressing" "$DEST/images/${version}.img.xz" "info"
+		pixz -3 < $DESTIMG/${version}.img > ${DESTIMG}/${version}.img.xz
+		rm ${DESTIMG}/${version}.img
 	fi
 
 	if [[ -n "${SEND_TO_SERVER}" ]]; then
 		ssh "${SEND_TO_SERVER}" "mkdir -p ${SEND_TO_LOCATION}${BOARD}/{archive,nightly}" &
 		display_alert "Uploading" "Please wait!" "info"
-		nice -n 19 bash -c "rsync -arP --info=progress2,stats1 --ignore-existing --remove-source-files --prune-empty-dirs $DESTIMG/ -e 'ssh -p 22' ${SEND_TO_SERVER}:${SEND_TO_LOCATION}${BOARD}/${subdir}" &
+		nice -n 19 bash -c "rsync -arP --info=progress2 --ignore-existing --remove-source-files --prune-empty-dirs $DESTIMG/ -e 'ssh -T -c aes128-ctr -o Compression=no -x -p 22' ${SEND_TO_SERVER}:${SEND_TO_LOCATION}${BOARD}/${subdir}" &
 	else
 		mv $DESTIMG/*.* $DEST/images/
 	fi
@@ -220,6 +229,15 @@ function build_all()
 		source ${SRC}"/config/boards/${BOARD}".wip 2> /dev/null
 		source ${SRC}"/config/boards/${BOARD}".conf 2> /dev/null
 
+		# override branch to build selected branches if defined
+		if [[ -n "${BROVER}" ]]; then
+			if [[ "${KERNEL_TARGET}" == *${BROVER}* ]]; then
+				BRANCH=${BROVER}
+			else
+				continue
+			fi
+		fi
+
 		# exceptions handling
 		[[ ${BOARDFAMILY} == sun*i* && $BRANCH != default ]] && BOARDFAMILY=sunxi
 
@@ -260,7 +278,7 @@ function build_all()
 
 					display_alert "Building ${n}."
 					(build_main) &
-					sleep $(( ( RANDOM % 10 )  + 10 ))
+#					sleep $(( ( RANDOM % 10 )  + 10 ))
 
 			# create BSP for all boards
 			elif [[ "${BSP_BUILD}" == yes ]]; then
