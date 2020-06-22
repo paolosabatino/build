@@ -25,6 +25,7 @@ NAND_DEVICE_PATH="/sys/block/rknand0/device"
 declare -A CHIP_IDS
 declare -A WIFI_NAMES
 declare -A WIFI_CHIPS
+declare -A BT_LEGACY_CHIPS
 
 declare -A DT_FLASH_OVERLAYS
 declare -A DT_LED_OVERLAYS
@@ -43,6 +44,12 @@ WIFI_NAMES+=(["024c:8179"]="Realtek RTL8189ES/ETV")
 WIFI_CHIPS+=(["3030:3030"]=ssv6051)
 WIFI_CHIPS+=(["024c:b703"]=8723cs)
 WIFI_CHIPS+=(["024c:8179"]=8189es)
+
+# Declarations for integrated wifi + bluetooth SDIO devices
+# Keys are the SDIO device ID, values are strings composed
+# of overlay name and systemd service name separated by
+# comma. Legacy kernel only
+BT_LEGACY_CHIPS+=(["024c:b703"]="bluetooth,rtk-bluetooth")
 
 # Declarations for device tree overlays
 DT_FLASH_OVERLAYS+=(["emmc"]="eMMC only flash memory")
@@ -325,6 +332,7 @@ if [ $USER_ID -ne 0 ]; then
 fi
 
 declare -a DT_OVERLAYS_TO_APPLY
+declare -a SYSTEMD_SERVICES_TO_ENABLE
 
 CHIP_TYPE=$(get_chip_type)
 CHIP_SERIAL=$(get_chip_serial)
@@ -363,6 +371,23 @@ DT_OVERLAYS_TO_APPLY+=($SELECTION)
 SELECTION=$(select_led_configuration) || exit 1
 DT_OVERLAYS_TO_APPLY+=($SELECTION)
 
+# Check for bluetooth, only on legacy kernel for now
+if [[ "$LEGACY_KERNEL" -eq 1 ]]; then
+	
+	BT_STR="${BT_LEGACY_CHIPS[$WIFI_ID]}"
+
+	if [[ -n "$BT_STR" ]]; then
+
+		BT_OVERLAY=$(echo $BT_STR | cut -d "," -f 1)
+		BT_SYSTEMD_SERVICE=$(echo $BT_STR | cut -d "," -f 2)
+
+		DT_OVERLAYS_TO_APPLY+=($BT_OVERLAY)
+		SYSTEMD_SERVICES_TO_ENABLE+=($BT_SYSTEMD_SERVICE)
+
+	fi
+
+fi
+
 sed -i '/^overlays=/d' $ARMBIAN_ENV_TXT
 
 if [ $? -ne 0 ]; then
@@ -385,6 +410,18 @@ fi
 echo ""
 echo ""
 echo "Device tree overlays enabled: ${DT_OVERLAYS_TO_APPLY[@]}"
+
+for SERVICE in "${SYSTEMD_SERVICES_TO_ENABLE[@]}"; do
+
+	systemctl enable $SERVICE > /dev/null 2>/dev/null
+
+	if [[ $? -eq 0 ]]; then
+		echo "Enabled systemd service $SERVICE"
+	else
+		echo "Error enabling systemd service $SERVICE"
+	fi
+
+done
 
 # Print the outcome of wifi chip selection only with legacy kernel
 # Mainline kernel is supposed to work ok by itself with hardware recognition
