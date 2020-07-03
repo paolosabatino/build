@@ -3,7 +3,7 @@ BOOTDELAY=1
 BOOTPATCHDIR='u-boot-sunxi'
 UBOOT_TARGET_MAP=';;u-boot-sunxi-with-spl.bin'
 BOOTSCRIPT="boot-sunxi.cmd:boot.cmd"
-BOOTENV_FILE='sunxi-default.txt'
+BOOTENV_FILE='sunxi.txt'
 LINUXFAMILY=sunxi
 UBOOT_FW_ENV='0x88000,0x20000' # /etc/fw_env.config offset and env size
 ASOUND_STATE='asound.state.sunxi-next'
@@ -27,7 +27,7 @@ case $BRANCH in
 	dev)
 
 		KERNELSOURCE="https://github.com/megous/linux"
-		KERNELBRANCH="branch:orange-pi-5.6"
+		KERNELBRANCH="branch:orange-pi-5.7"
 		KERNELPATCHDIR='sunxi-'$BRANCH
 
 	;;
