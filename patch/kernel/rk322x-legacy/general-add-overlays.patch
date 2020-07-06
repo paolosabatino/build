@@ -374,10 +374,10 @@ index 000000000..d4c39e20a
 +
 diff --git a/arch/arm/boot/dts/overlay/rk322x-led-conf1.dts b/arch/arm/boot/dts/overlay/rk322x-led-conf1.dts
 new file mode 100644
-index 000000000..faaee4070
+index 000000000..56642304a
 --- /dev/null
 +++ b/arch/arm/boot/dts/overlay/rk322x-led-conf1.dts
-@@ -0,0 +1,41 @@
+@@ -0,0 +1,56 @@
 +/dts-v1/;
 +/plugin/;
 +
@@ -418,17 +418,33 @@ index 000000000..faaee4070
 +		};
 +	};
 +
++	fragment@2 {
++		target = <&gpio_keys>;
++		__overlay__ {
++
++			reset {
++				gpios = <&gpio3 RK_PD1 GPIO_ACTIVE_LOW>;
++				label = "reset";
++				linux,code = <KEY_RESTART>;
++				debounce-interval = <200>;
++				wakeup-source;
++			};
++
++		};
++	};
++
 +};
 diff --git a/arch/arm/boot/dts/overlay/rk322x-led-conf2.dts b/arch/arm/boot/dts/overlay/rk322x-led-conf2.dts
 new file mode 100644
-index 000000000..8d93d9fcd
+index 000000000..153f71565
 --- /dev/null
 +++ b/arch/arm/boot/dts/overlay/rk322x-led-conf2.dts
-@@ -0,0 +1,41 @@
+@@ -0,0 +1,57 @@
 +/dts-v1/;
 +/plugin/;
 +
 +#include <dt-bindings/gpio/gpio.h>
++#include <dt-bindings/input/input.h>
 +#include <dt-bindings/pinctrl/rockchip.h>
 +
 +/ {
@@ -460,6 +476,21 @@ index 000000000..8d93d9fcd
 +
 +			gpio_led_aux: gpio-led-aux {
 +				rockchip,pins =  <1 RK_PA7 RK_FUNC_GPIO &pcfg_pull_none>;
++			};
++
++		};
++	};
++
++	fragment@2 {
++		target = <&gpio_keys>;
++		__overlay__ {
++
++			reset {
++				gpios = <&gpio3 RK_PD1 GPIO_ACTIVE_LOW>;
++				label = "reset";
++				linux,code = <KEY_RESTART>;
++				debounce-interval = <200>;
++				wakeup-source;
 +			};
 +
 +		};
