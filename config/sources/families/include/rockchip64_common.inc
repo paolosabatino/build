@@ -9,11 +9,12 @@ OVERLAY_PREFIX='rockchip'
 SERIALCON=${SERIALCON:=$([ $BRANCH == "legacy" ] && echo "ttyFIQ0:1500000" || echo "ttyS2:1500000")}
 GOVERNOR="ondemand"
 CPUMAX="2016000"
-CPUMIN="600000"
+CPUMIN="408000"
+BOOTBRANCH="tag:v2020.07"
 
 RKBIN_DIR="$SRC/cache/sources/rkbin-tools"
 
-if [[ $BOARD == nanopi-r2s || $BOARD == rockpi-e ]]; then
+if [[ $BOARD == nanopi-r2s || $BOARD == rockpi-e || $BOARD == nanopineo3 ]]; then
 
 	BOOT_USE_BLOBS=yes
 	BOOT_SOC=rk3328
@@ -59,7 +60,7 @@ case $BRANCH in
 	current)
 
 		KERNELPATCHDIR='rockchip64-'$BRANCH
-		KERNELBRANCH="branch:linux-5.4.y"
+		KERNELBRANCH="branch:linux-5.7.y"
 		LINUXFAMILY=rockchip64
 		LINUXCONFIG='linux-rockchip64-'$BRANCH
 
@@ -82,6 +83,7 @@ prepare_boot_configuration()
 
 		UBOOT_TARGET_MAP="BL31=bl31.bin idbloader.img u-boot.itb;;idbloader.img u-boot.itb"
 		ATFSOURCE='https://github.com/ARM-software/arm-trusted-firmware'
+		ATF_COMPILER='aarch64-linux-gnu-'
 		ATFDIR='arm-trusted-firmware'
 		ATFBRANCH='tag:v2.2'
 		ATF_USE_GCC='> 6.3'
@@ -112,6 +114,7 @@ prepare_boot_configuration()
 
 		UBOOT_TARGET_MAP=";;idbloader.bin uboot.img trust.bin"
 		ATFSOURCE='https://github.com/ayufan-rock64/arm-trusted-firmware'
+		ATF_COMPILER='aarch64-linux-gnu-'
 		ATFDIR='arm-trusted-firmware-rockchip64'
 		ATFBRANCH='branch:rockchip'
 		ATF_USE_GCC='> 6.3'
