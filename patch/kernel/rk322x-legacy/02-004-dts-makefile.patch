@@ -1,12 +1,12 @@
 diff --git a/arch/arm/boot/dts/Makefile b/arch/arm/boot/dts/Makefile
-index 4d9f7b328..15d4a1da3 100644
+index cb0119d8c..1d61a2bda 100644
 --- a/arch/arm/boot/dts/Makefile
 +++ b/arch/arm/boot/dts/Makefile
-@@ -530,6 +530,7 @@ dtb-$(CONFIG_ARCH_ROCKCHIP) += \
- 	rk3128h-evb-linux.dtb \
- 	rk3188-radxarock.dtb \
+@@ -876,6 +876,7 @@ dtb-$(CONFIG_ARCH_ROCKCHIP) += \
  	rk3228-evb.dtb \
+ 	rk3229-echo-v10.dtb \
+ 	rk3229-evb.dtb \
 +	rk322x-box.dtb \
- 	rk3229-at-3nod.dtb \
- 	rk3229-at-3nod-func.dtb \
- 	rk3229-at-gva.dtb \
+ 	rk3229-evb-android-avb.dtb \
+ 	rk3229-gva-sdk.dtb \
+ 	rk3288-evb-act8846.dtb \
