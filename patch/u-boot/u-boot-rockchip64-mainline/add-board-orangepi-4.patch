@@ -1,15 +1,15 @@
 diff --git a/arch/arm/dts/Makefile b/arch/arm/dts/Makefile
-index 59a5aa3e..37a8157b 100644
+index 0ba45ff7..530d60bf 100644
 --- a/arch/arm/dts/Makefile
 +++ b/arch/arm/dts/Makefile
-@@ -126,6 +126,7 @@ dtb-$(CONFIG_ROCKCHIP_RK3399) += \
+@@ -132,6 +132,7 @@ dtb-$(CONFIG_ROCKCHIP_RK3399) += \
  	rk3399-nanopi-m4v2.dtb \
  	rk3399-nanopi-neo4.dtb \
  	rk3399-orangepi.dtb \
 +	rk3399-orangepi-4.dtb \
- 	rk3399-puma-ddr1333.dtb \
- 	rk3399-puma-ddr1600.dtb \
- 	rk3399-puma-ddr1866.dtb \
+ 	rk3399-pinebook-pro.dtb \
+ 	rk3399-puma-haikou.dtb \
+ 	rk3399-roc-pc.dtb \
 diff --git a/arch/arm/dts/rk3399-orangepi-4-u-boot.dtsi b/arch/arm/dts/rk3399-orangepi-4-u-boot.dtsi
 new file mode 100644
 index 00000000..5bd86966
@@ -31,7 +31,7 @@ index 00000000..5bd86966
 +};
 diff --git a/arch/arm/dts/rk3399-orangepi-4.dts b/arch/arm/dts/rk3399-orangepi-4.dts
 new file mode 100644
-index 0000000..4c50b3d
+index 00000000..65e9c44b
 --- /dev/null
 +++ b/arch/arm/dts/rk3399-orangepi-4.dts
 @@ -0,0 +1,206 @@
@@ -162,7 +162,7 @@ index 0000000..4c50b3d
 +	status = "okay";
 +};
 +
-+&dwc3_typec0 {
++&usbdrd3_0 {
 +	vbus-supply = <&vcc5v0_typec0>;
 +	status = "okay";
 +};
@@ -175,7 +175,7 @@ index 0000000..4c50b3d
 +	status = "okay";
 +};
 +
-+&dwc3_typec1 {
++&usbdrd3_1 {
 +	vbus-supply = <&vcc5v0_typec1>;
 +	status = "okay";
 +};
@@ -243,7 +243,7 @@ index 0000000..4c50b3d
 +};
 diff --git a/configs/orangepi-4-rk3399_defconfig b/configs/orangepi-4-rk3399_defconfig
 new file mode 100644
-index 00000000..ff4d32e2
+index 00000000..18ec369f
 --- /dev/null
 +++ b/configs/orangepi-4-rk3399_defconfig
 @@ -0,0 +1,72 @@

@@ -2,18 +2,19 @@ ARCH=arm64
 KERNEL_IMAGE_TYPE=Image
 OFFSET=16
 BOOTSCRIPT='boot-rockchip64.cmd:boot.cmd'
-BOOTENV_FILE='rockchip-default.txt'
+BOOTENV_FILE='rockchip.txt'
 UBOOT_TARGET_MAP=";;idbloader.bin uboot.img trust.bin"
 BOOTDELAY=0
 OVERLAY_PREFIX='rockchip'
 SERIALCON=${SERIALCON:=$([ $BRANCH == "legacy" ] && echo "ttyFIQ0:1500000" || echo "ttyS2:1500000")}
 GOVERNOR="ondemand"
 CPUMAX="2016000"
-CPUMIN="600000"
+CPUMIN="408000"
+BOOTBRANCH="tag:v2020.07"
 
 RKBIN_DIR="$SRC/cache/sources/rkbin-tools"
 
-if [[ $BOARD == nanopi-r2s || $BOARD == rockpi-e ]]; then
+if [[ $BOARD == nanopi-r2s || $BOARD == rockpi-e || $BOARD == nanopineo3 ]]; then
 
 	BOOT_USE_BLOBS=yes
 	BOOT_SOC=rk3328
@@ -59,7 +60,7 @@ case $BRANCH in
 	current)
 
 		KERNELPATCHDIR='rockchip64-'$BRANCH
-		KERNELBRANCH="branch:linux-5.4.y"
+		KERNELBRANCH="branch:linux-5.7.y"
 		LINUXFAMILY=rockchip64
 		LINUXCONFIG='linux-rockchip64-'$BRANCH
 
@@ -82,6 +83,7 @@ prepare_boot_configuration()
 
 		UBOOT_TARGET_MAP="BL31=bl31.bin idbloader.img u-boot.itb;;idbloader.img u-boot.itb"
 		ATFSOURCE='https://github.com/ARM-software/arm-trusted-firmware'
+		ATF_COMPILER='aarch64-linux-gnu-'
 		ATFDIR='arm-trusted-firmware'
 		ATFBRANCH='tag:v2.2'
 		ATF_USE_GCC='> 6.3'
@@ -112,6 +114,7 @@ prepare_boot_configuration()
 
 		UBOOT_TARGET_MAP=";;idbloader.bin uboot.img trust.bin"
 		ATFSOURCE='https://github.com/ayufan-rock64/arm-trusted-firmware'
+		ATF_COMPILER='aarch64-linux-gnu-'
 		ATFDIR='arm-trusted-firmware-rockchip64'
 		ATFBRANCH='branch:rockchip'
 		ATF_USE_GCC='> 6.3'
@@ -259,12 +262,6 @@ family_tweaks()
 
 	fi
 
-	if [[ $BOARD == nanopim4v2 ]]; then
-		mv $SDCARD/lib/firmware/brcm/brcmfmac4356-sdio.bin{,.bak}
-		ln -s brcmfmac4356-sdio-nanopi-m4v2.bin $SDCARD/lib/firmware/brcm/brcmfmac4356-sdio.bin
-		ln -s brcmfmac4356-sdio-nanopi-m4v2.txt $SDCARD/lib/firmware/brcm/brcmfmac4356-sdio.friendlyarm,nanopi-m4.txt
-	fi
-
 }
 
 
@@ -280,7 +277,7 @@ family_tweaks_bsp()
 		install -m 755 $SRC/packages/bsp/rk3328/z28pro/start_bt.sh $destination/usr/local/bin
 		cp $SRC/packages/bsp/rk3328/z28pro/z28pro-bluetooth.service $destination/lib/systemd/system/
 
-	elif [[ $BOARD == rockpi-4b || $BOARD == nanop* || $BOARD == orangepi* || $BOARD == firefly* || $BOARD == roc-rk3399-pc ]]; then
+	elif [[ $BOARD == nanop*4 || $BOARD == orangepi* || $BOARD == firefly* ]]; then
 
 		# Bluetooth for most of others
 		install -m 755 $SRC/packages/bsp/rk3399/brcm_patchram_plus_rk3399 $destination/usr/bin

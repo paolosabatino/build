@@ -72,10 +72,32 @@ compilation_prepare()
 	fi
 
 	#
-	# mac80211 wireless driver injection features from Kali Linux
+	# Linux splah file
 	#
 
 	if linux-version compare "${version}" ge 5.4; then
+
+		display_alert "Adding" "Kernel splash file" "info"
+		process_patch_file "${SRC}/patch/misc/0001-bootsplash.patch" "applying"
+		process_patch_file "${SRC}/patch/misc/0002-bootsplash.patch" "applying"
+		process_patch_file "${SRC}/patch/misc/0003-bootsplash.patch" "applying"
+		process_patch_file "${SRC}/patch/misc/0004-bootsplash.patch" "applying"
+		process_patch_file "${SRC}/patch/misc/0005-bootsplash.patch" "applying"
+		process_patch_file "${SRC}/patch/misc/0006-bootsplash.patch" "applying"
+		process_patch_file "${SRC}/patch/misc/0007-bootsplash.patch" "applying"
+		process_patch_file "${SRC}/patch/misc/0008-bootsplash.patch" "applying"
+		process_patch_file "${SRC}/patch/misc/0009-bootsplash.patch" "applying"
+		process_patch_file "${SRC}/patch/misc/0010-bootsplash.patch" "applying"
+		process_patch_file "${SRC}/patch/misc/0011-bootsplash.patch" "applying"
+		process_patch_file "${SRC}/patch/misc/0012-bootsplash.patch" "applying"
+
+	fi
+
+	#
+	# mac80211 wireless driver injection features from Kali Linux
+	#
+
+	if linux-version compare "${version}" ge 5.4 && [ $EXTRAWIFI == yes ]; then
 
 		display_alert "Adding" "Wireless package injections for mac80211 compatible chipsets" "info"
 		process_patch_file "${SRC}/patch/misc/kali-wifi-injection-1.patch" "applying"
@@ -154,7 +176,19 @@ compilation_prepare()
 	fi
 
 
+	# Updated USB network drivers for RTL8152/RTL8153 based dongles that also support 2.5Gbs variants
 
+	if linux-version compare "${version}" ge 5.4 && [ $LINUXFAMILY != mvebu64 ] && [ $LINUXFAMILY != rk322x ] && [ $LINUXFAMILY != odroidxu4 ] && [ $EXTRAWIFI == yes ]; then
+
+		# attach to specifics tag or branch
+		local rtl8152ver="branch:master"
+
+		display_alert "Adding" "Drivers for 2.5Gb RTL8152/RTL8153 USB dongles ${rtl8152ver}" "info"
+		fetch_from_repo "https://github.com/igorpecovnik/realtek-r8152-linux" "rtl8152" "${rtl8152ver}" "yes"
+		cp -R "${SRC}/cache/sources/rtl8152/${rtl8152ver#*:}"/{r8152.c,compatibility.h} \
+		"${SRC}/cache/sources/${LINUXSOURCEDIR}/drivers/net/usb/"
+
+	fi
 
 	# Wireless drivers for Realtek 8189ES chipsets
 
@@ -226,6 +260,8 @@ compilation_prepare()
 
 		# attach to specifics tag or branch
 		local rtl8812auver="branch:v5.6.4.2"
+		# temporally override
+		local rtl8812auver="commit:058ef814b8e27639fdf10b03cac1a1d8e41c6777"
 
 		display_alert "Adding" "Wireless drivers for Realtek 8811, 8812, 8814 and 8821 chipsets ${rtl8812auver}" "info"
 
@@ -462,6 +498,12 @@ compilation_prepare()
 		$SRC/cache/sources/${LINUXSOURCEDIR}/drivers/net/wireless/Kconfig
 
 		process_patch_file "${SRC}/patch/misc/wireless-rtl8723du.patch" "applying"
+	fi
+
+
+	if linux-version compare $version ge 4.4 && linux-version compare $version lt 5.8; then
+		display_alert "Adjustin" "Framebuffer driver for ST7789 IPS display" "info"
+		process_patch_file "${SRC}/patch/misc/fbtft-st7789v-invert-color.patch" "applying"
 	fi
 
 }
