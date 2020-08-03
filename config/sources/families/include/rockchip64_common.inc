@@ -6,14 +6,14 @@ BOOTENV_FILE='rockchip-default.txt'
 UBOOT_TARGET_MAP=";;idbloader.bin uboot.img trust.bin"
 BOOTDELAY=0
 OVERLAY_PREFIX='rockchip'
-SERIALCON=${SERIALCON:-'ttyFIQ0:1500000'}
+SERIALCON=${SERIALCON:=$([ $BRANCH == "legacy" ] && echo "ttyFIQ0:1500000" || echo "ttyS2:1500000")}
 GOVERNOR="ondemand"
 CPUMAX="2016000"
 CPUMIN="600000"
 
 RKBIN_DIR="$SRC/cache/sources/rkbin-tools"
 
-if [[ $BOARD == nanopi-r2s ]]; then
+if [[ $BOARD == nanopi-r2s || $BOARD == rockpi-e ]]; then
 
 	BOOT_USE_BLOBS=yes
 	BOOT_SOC=rk3328
@@ -30,7 +30,7 @@ elif [[ $BOARD == rockpi-4* ]]; then
 
 	BOOT_USE_BLOBS=yes
 	BOOT_SOC=rk3399
-	DDR_BLOB='rk33/rk3399_ddr_933MHz_v1.24.bin'
+	DDR_BLOB='rk33/rk3399_ddr_933MHz_v1.20.bin' # 1GB model does not boot with later versions
 	MINILOADER_BLOB='rk33/rk3399_miniloader_v1.19.bin'
 	BL31_BLOB='rk33/rk3399_bl31_v1.30.elf'
 
@@ -44,7 +44,7 @@ elif [[ $BOARD == rockpi-s ]]; then
 	BOOT_USE_BLOBS=yes
 	BOOT_SOC=rk3308
 	DDR_BLOB='rk33/rk3308_ddr_589MHz_uart0_m0_v1.26.bin'
-	MINILOADER_BLOB='rk33/rk3308_miniloader_v1.13.bin'
+	MINILOADER_BLOB='rk33/rk3308_miniloader_sd_nand_v1.13.bin'
 	BL31_BLOB='rk33/rk3308_bl31_v2.10.elf'
 	CPUMAX="1296000"
 
@@ -68,7 +68,7 @@ case $BRANCH in
 	dev)
 
 		KERNELPATCHDIR='rockchip64-'$BRANCH
-		KERNELBRANCH="branch:linux-5.6.y"
+		KERNELBRANCH="branch:linux-5.7.y"
 		LINUXFAMILY=rockchip64
 		LINUXCONFIG='linux-rockchip64-'$BRANCH
 

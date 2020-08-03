@@ -49,11 +49,11 @@ prepare_board() {
 	CheckDevice=$(for i in /var/log /var / ; do findmnt -n -o SOURCE $i && break ; done)
 	# adjust logrotate configs
 	if [[ "${CheckDevice}" == "/dev/zram0" || "${CheckDevice}" == "armbian-ramlog" ]]; then
-		for ConfigFile in /etc/logrotate.d/* ; do sed -i -e "s/\/log\//\/log.hdd\//g" "${ConfigFile}"; done
-		sed -i "s/\/log\//\/log.hdd\//g" /etc/logrotate.conf
+		for ConfigFile in /etc/logrotate.d/* ; do sed -i -e "s/\/var\/log\//\/var\/log.hdd\//g" "${ConfigFile}"; done
+		sed -i "s/\/var\/log\//\/var\/log.hdd\//g" /etc/logrotate.conf
 	else
-		for ConfigFile in /etc/logrotate.d/* ; do sed -i -e "s/\/log.hdd\//\/log\//g" "${ConfigFile}"; done
-		sed -i "s/\/log.hdd\//\/log\//g" /etc/logrotate.conf
+		for ConfigFile in /etc/logrotate.d/* ; do sed -i -e "s/\/var\/log.hdd\//\/var\/log\//g" "${ConfigFile}"; done
+		sed -i "s/\/var\/log.hdd\//\/var\/log\//g" /etc/logrotate.conf
 	fi
 
 	# unlock cpuinfo_cur_freq to be accesible by a normal user
@@ -138,6 +138,27 @@ prepare_board() {
 			for i in $(awk -F':' '/gpu/{print $1}' /proc/interrupts | sed 's/\ //g'); do
 				echo 8 >/proc/irq/$i/smp_affinity
 			done
+			;;
+		rk322x) # RK322x: usb otg on cpu1, usb2,3,4 (EHCI), usb5,6,7 (OHCI) on cpu2, eth and GPU on cpu3
+			echo 2 >/proc/irq/$(awk -F":" "/:usb1/ {print \$1}" </proc/interrupts | sed 's/\ //g')/smp_affinity
+			echo 4 >/proc/irq/$(awk -F":" "/:usb2/ {print \$1}" </proc/interrupts | sed 's/\ //g')/smp_affinity
+			echo 4 >/proc/irq/$(awk -F":" "/:usb3/ {print \$1}" </proc/interrupts | sed 's/\ //g')/smp_affinity
+			echo 4 >/proc/irq/$(awk -F":" "/:usb4/ {print \$1}" </proc/interrupts | sed 's/\ //g')/smp_affinity
+			echo 4 >/proc/irq/$(awk -F":" "/:usb5/ {print \$1}" </proc/interrupts | sed 's/\ //g')/smp_affinity
+			echo 4 >/proc/irq/$(awk -F":" "/:usb6/ {print \$1}" </proc/interrupts | sed 's/\ //g')/smp_affinity
+			echo 4 >/proc/irq/$(awk -F":" "/:usb7/ {print \$1}" </proc/interrupts | sed 's/\ //g')/smp_affinity
+			echo 8 >/proc/irq/$(awk -F":" "/eth0/ {print \$1}" </proc/interrupts | sed 's/\ //g' | head -n1)/smp_affinity
+			echo 7 >/sys/class/net/eth0/queues/rx-0/rps_cpus
+
+			# Mali in 4.4 kernel
+			for i in $(awk -F':' '/Mali_/{print $1}' /proc/interrupts | sed 's/\ //g'); do
+				echo 8 >/proc/irq/$i/smp_affinity
+			done
+
+			# Lima in mainline kernel
+			echo 8 >/proc/irq/$(awk -F':' '/gp$/{print $1}' /proc/interrupts | sed 's/\ //g')/smp_affinity
+			echo 8 >/proc/irq/$(awk -F':' '/gpmmu/{print $1}' /proc/interrupts | sed 's/\ //g')/smp_affinity
+			echo 8 >/proc/irq/$(awk -F':' '/pp0/{print $1}' /proc/interrupts | sed 's/\ //g')/smp_affinity
 			;;
 		rockchip64) # Rock64 and Renegade: GPU on cpu1, USB3 on cpu2, Ethernet on cpu3
 			for i in $(awk -F':' '/Mali/{print $1}' </proc/interrupts | sed 's/\ //g'); do
@@ -251,9 +272,9 @@ prepare_board() {
 						echo 8 >/proc/irq/$i/smp_affinity
 					done
 					;;
-				"Beelink X2"|"Orange Pi R1")
+				"Beelink X2"|"Orange Pi R1"|"ZeroPi")
 					# Wifi module reload workaround / fix
-					[[ -n $(lsmod | grep 8189es) ]] && rmmod 8189es && modprobe 8189es
+					[[ -n $(lsmod | grep 8189es) && "${BOARD_NAME}" != "ZeroPi" ]] && rmmod 8189es && modprobe 8189es
 					# Send SDIO to cpu1, USB to cpu2, Ethernet to cpu3
 					for i in $(awk -F':' '/sunxi-mmc/{print $1}' </proc/interrupts | sed 's/\ //g'); do
 						echo 2 >/proc/irq/$i/smp_affinity

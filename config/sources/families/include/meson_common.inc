@@ -1,3 +1,4 @@
+ARCH=armhf
 BOOTSOURCE='https://github.com/hardkernel/u-boot.git'
 BOOTBRANCH='branch:odroidc-v2011.03'
 BOOTDIR='u-boot-odroidc1'
@@ -21,8 +22,8 @@ case $BRANCH in
         ;;
 	current)
 
-		KERNELBRANCH="branch:linux-5.6.y"
-		KERNELPATCHDIR='meson-'$BRANCH
+		KERNELBRANCH="branch:linux-5.7.y"
+		KERNELPATCHDIR='meson-current'
 
 	;;
 	dev)

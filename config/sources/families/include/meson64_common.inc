@@ -20,10 +20,13 @@ GOVERNOR=conservative
 
 case $BRANCH in
 
+        current)
+                KERNELBRANCH='branch:linux-5.6.y'
+                KERNELPATCHDIR='meson64-current'
+        ;;
         dev)
-
-		KERNELBRANCH='branch:linux-5.6.y'
-
+                KERNELBRANCH='branch:linux-5.7.y'
+                KERNELPATCHDIR='meson64-dev'
         ;;
 
 esac

@@ -41,6 +41,7 @@ create_board_package()
 	# Replaces: unattended-upgrades may be needed to replace /etc/apt/apt.conf.d/50unattended-upgrades
 	# (distributions provide good defaults, so this is not needed currently)
 	# Depends: linux-base is needed for "linux-version" command in initrd cleanup script
+	# Depends: fping is needed for armbianmonitor to upload armbian-hardware-monitor.log
 	cat <<-EOF > "${destination}"/DEBIAN/control
 	Package: linux-${RELEASE}-root-${DEB_BRANCH}${BOARD}
 	Version: $REVISION
@@ -49,7 +50,7 @@ create_board_package()
 	Installed-Size: 1
 	Section: kernel
 	Priority: optional
-	Depends: bash, linux-base, u-boot-tools, initramfs-tools, lsb-release
+	Depends: bash, linux-base, u-boot-tools, initramfs-tools, lsb-release, fping
 	Provides: armbian-bsp
 	Conflicts: armbian-bsp
 	Suggests: armbian-config
@@ -73,6 +74,9 @@ create_board_package()
 	    mv /etc/network/interfaces.tmp /etc/network/interfaces
 
 	fi
+
+	# fixing ramdisk corruption when using lz4 compression method
+	sed -i "s/^COMPRESS=.*/COMPRESS=gzip/" /etc/initramfs-tools/initramfs.conf
 
 	# swap
 	grep -q vm.swappiness /etc/sysctl.conf
