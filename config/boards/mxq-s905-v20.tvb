@@ -2,5 +2,6 @@
 BOARD_NAME="MXQ S905 V20"
 BOARDFAMILY="meson-gxbb"
 BOOTCONFIG="mxq-s905-v20_defconfig"
-KERNEL_TARGET="current,dev"
-FULL_DESKTOP="yes"
+KERNEL_TARGET="current"
+FULL_DESKTOP="no"
+ASOUND_STATE=asound.state.mesongx
