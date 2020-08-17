@@ -8,11 +8,21 @@ BOOTDELAY=0
 OVERLAY_PREFIX='rockchip'
 SERIALCON=${SERIALCON:=$([ $BRANCH == "legacy" ] && echo "ttyFIQ0:1500000" || echo "ttyS2:1500000")}
 GOVERNOR="ondemand"
-CPUMAX="2016000"
-CPUMIN="408000"
 BOOTBRANCH="tag:v2020.07"
 
 RKBIN_DIR="$SRC/cache/sources/rkbin-tools"
+
+if [[ $BOOTCONFIG == *3399* ]]; then
+
+	CPUMIN=${CPUMIN:="408000"}
+	CPUMAX=${CPUMAX:="2016000"}
+
+else # rk3308, rk3328
+
+	CPUMIN=${CPUMIN:="408000"}
+	CPUMAX=${CPUMAX:="1296000"}
+
+fi
 
 if [[ $BOARD == nanopi-r2s || $BOARD == rockpi-e || $BOARD == nanopineo3 ]]; then
 
@@ -25,7 +35,6 @@ if [[ $BOARD == nanopi-r2s || $BOARD == rockpi-e || $BOARD == nanopineo3 ]]; the
 elif [[ $BOOTCONFIG == *3328* ]]; then
 
 	BOOT_RK3328_USE_AYUFAN_ATF=yes
-	CPUMAX="1390000"
 
 elif [[ $BOARD == rockpi-4* ]]; then
 
@@ -47,7 +56,6 @@ elif [[ $BOARD == rockpi-s ]]; then
 	DDR_BLOB='rk33/rk3308_ddr_589MHz_uart0_m0_v1.26.bin'
 	MINILOADER_BLOB='rk33/rk3308_miniloader_sd_nand_v1.13.bin'
 	BL31_BLOB='rk33/rk3308_bl31_v2.10.elf'
-	CPUMAX="1296000"
 
 else
 
@@ -69,7 +77,7 @@ case $BRANCH in
 	dev)
 
 		KERNELPATCHDIR='rockchip64-'$BRANCH
-		KERNELBRANCH="branch:linux-5.7.y"
+		KERNELBRANCH="branch:linux-5.8.y"
 		LINUXFAMILY=rockchip64
 		LINUXCONFIG='linux-rockchip64-'$BRANCH
 
@@ -277,9 +285,9 @@ family_tweaks_bsp()
 		install -m 755 $SRC/packages/bsp/rk3328/z28pro/start_bt.sh $destination/usr/local/bin
 		cp $SRC/packages/bsp/rk3328/z28pro/z28pro-bluetooth.service $destination/lib/systemd/system/
 
-	elif [[ $BOARD == nanop*4 || $BOARD == orangepi* || $BOARD == firefly* ]]; then
+	elif [[ $BRANCH == legacy && ($BOARD == rockpi-4[bc] || $BOARD == nanop*4* || $BOARD == orangepi* || $BOARD == firefly*) ]]; then
 
-		# Bluetooth for most of others
+		# Bluetooth for most of others (custom patchram is needed only in legacy)
 		install -m 755 $SRC/packages/bsp/rk3399/brcm_patchram_plus_rk3399 $destination/usr/bin
 		cp $SRC/packages/bsp/rk3399/rk3399-bluetooth.service $destination/lib/systemd/system/
 
@@ -288,6 +296,16 @@ family_tweaks_bsp()
 	if [[ $BOARD == pinebook-pro ]]; then
 
 		cp $SRC/packages/bsp/pinebook-pro/xorg.conf $destination/etc/X11/
+	fi
+
+	if [[ $BOARD == helios64 ]]; then
+
+		mkdir -p $destination/etc/udev/rules.d/
+		mkdir -p $destination/lib/systemd/system-shutdown/
+		cp $SRC/packages/bsp/helios64/50-usb-realtek-net.rules $destination/etc/udev/rules.d/
+		cp $SRC/packages/bsp/helios64/70-keep-usb-lan-as-eth1.rules $destination/etc/udev/rules.d/
+		cp $SRC/packages/bsp/helios64/asound.conf $destination/etc/
+		install -m 755 $SRC/packages/bsp/helios64/disable_auto_poweron $destination/lib/systemd/system-shutdown/
 	fi
 
 	# Graphics and media
