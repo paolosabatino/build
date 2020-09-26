@@ -1,0 +1,69 @@
+diff --git a/drivers/gpu/drm/rockchip/rockchip_drm_vop.c b/drivers/gpu/drm/rockchip/rockchip_drm_vop.c
+index c80f7d9fd..2210565a9 100644
+--- a/drivers/gpu/drm/rockchip/rockchip_drm_vop.c
++++ b/drivers/gpu/drm/rockchip/rockchip_drm_vop.c
+@@ -956,6 +956,9 @@ static void vop_plane_atomic_update(struct drm_plane *plane,
+ 	VOP_WIN_SET(vop, win, x_mir_en,
+ 		    (state->rotation & DRM_MODE_REFLECT_X) ? 1 : 0);
+ 
++	if (win->type == DRM_PLANE_TYPE_CURSOR)
++		VOP_WIN_SET(vop, win, hwc_size, 0x1);
++
+ 	if (is_yuv) {
+ 		int hsub = fb->format->hsub;
+ 		int vsub = fb->format->vsub;
+diff --git a/drivers/gpu/drm/rockchip/rockchip_drm_vop.h b/drivers/gpu/drm/rockchip/rockchip_drm_vop.h
+index 4a2099cb5..aa6b3b638 100644
+--- a/drivers/gpu/drm/rockchip/rockchip_drm_vop.h
++++ b/drivers/gpu/drm/rockchip/rockchip_drm_vop.h
+@@ -171,6 +171,8 @@ struct vop_win_phy {
+ 	struct vop_reg alpha_mode;
+ 	struct vop_reg alpha_en;
+ 	struct vop_reg channel;
++
++	struct vop_reg hwc_size;
+ };
+ 
+ struct vop_win_yuv2yuv_data {
+diff --git a/drivers/gpu/drm/rockchip/rockchip_vop_reg.c b/drivers/gpu/drm/rockchip/rockchip_vop_reg.c
+index 80053d91a..cad01ed45 100644
+--- a/drivers/gpu/drm/rockchip/rockchip_vop_reg.c
++++ b/drivers/gpu/drm/rockchip/rockchip_vop_reg.c
+@@ -613,6 +613,19 @@ static const struct vop_win_phy rk3288_win23_data = {
+ 	.dst_alpha_ctl = VOP_REG(RK3288_WIN2_DST_ALPHA_CTRL, 0xff, 0),
+ };
+ 
++static const struct vop_win_phy rk3288_cursor_data = {
++	.data_formats = formats_win_lite,
++	.nformats = ARRAY_SIZE(formats_win_lite),
++	.enable = VOP_REG(RK3288_HWC_CTRL0, 0x1, 0),
++	.format = VOP_REG(RK3288_HWC_CTRL0, 0x7, 1),
++	.rb_swap = VOP_REG(RK3288_HWC_CTRL0, 0x1, 12),
++	.dsp_st = VOP_REG(RK3288_HWC_DSP_ST, 0x1fff1fff, 0),
++	.yrgb_mst = VOP_REG(RK3288_HWC_MST, 0xffffffff, 0),
++	.src_alpha_ctl = VOP_REG(RK3288_HWC_SRC_ALPHA_CTRL, 0xff, 0),
++	.dst_alpha_ctl = VOP_REG(RK3288_HWC_DST_ALPHA_CTRL, 0xff, 0),
++	.hwc_size = VOP_REG(RK3288_HWC_CTRL0, 0x3, 5),
++};
++
+ static const struct vop_modeset rk3288_modeset = {
+ 	.htotal_pw = VOP_REG(RK3288_DSP_HTOTAL_HS_END, 0x1fff1fff, 0),
+ 	.hact_st_end = VOP_REG(RK3288_DSP_HACT_ST_END, 0x1fff1fff, 0),
+@@ -660,6 +673,8 @@ static const struct vop_win_data rk3288_vop_win_data[] = {
+ 	{ .base = 0x00, .phy = &rk3288_win23_data,
+ 	  .type = DRM_PLANE_TYPE_OVERLAY },
+ 	{ .base = 0x50, .phy = &rk3288_win23_data,
++	  .type = DRM_PLANE_TYPE_OVERLAY },
++	{ .base = 0x00, .phy = &rk3288_cursor_data,
+ 	  .type = DRM_PLANE_TYPE_CURSOR },
+ };
+ 
+@@ -949,6 +964,8 @@ static const struct vop_win_data rk3228_vop_win_data[] = {
+ 	{ .base = 0x00, .phy = &rk3288_win01_data,
+ 	  .type = DRM_PLANE_TYPE_PRIMARY },
+ 	{ .base = 0x40, .phy = &rk3288_win01_data,
++	  .type = DRM_PLANE_TYPE_OVERLAY },
++	{ .base = 0x00, .phy = &rk3288_cursor_data,
+ 	  .type = DRM_PLANE_TYPE_CURSOR },
+ };
+ 
