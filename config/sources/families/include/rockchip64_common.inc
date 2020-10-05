@@ -63,6 +63,11 @@ elif [[ $BOARD == rockpi-s ]]; then
 	MINILOADER_BLOB='rk33/rk3308_miniloader_sd_nand_v1.13.bin'
 	BL31_BLOB='rk33/rk3308_bl31_v2.10.elf'
 
+elif [[ $BOARD == rk3318-box ]]; then
+
+	BOOT_USE_MAINLINE_ATF=yes
+	BOOT_SOC=rk3328	
+
 else
 
 	ATFPATCHDIR='atf-rk3399'
@@ -103,6 +108,13 @@ prepare_boot_configuration()
 		ATF_USE_GCC='> 6.3'
 		ATF_TARGET_MAP="M0_CROSS_COMPILE=arm-linux-gnueabi- PLAT=$BOOT_SOC bl31;;build/$BOOT_SOC/release/bl31/bl31.elf:bl31.bin"
 		ATF_TOOLCHAIN2="arm-linux-gnueabi-:> 5.0"
+		
+		if [[ $BOOT_SOC == rk3399 ]]; then
+			ATF_TARGET_MAP='M0_CROSS_COMPILE=arm-linux-gnueabi- PLAT=rk3399 bl31;;build/rk3399/release/bl31/bl31.elf:bl31.bin'
+		else
+			ATFBRANCH='tag:v2.3'
+			ATF_TARGET_MAP='PLAT=rk3328 bl31;;build/rk3328/release/bl31/bl31.elf:bl31.bin'
+		fi
 
 	elif [[ $BOOT_USE_TPL_SPL_BLOB == yes ]]; then
 
