@@ -38,6 +38,11 @@ elif [[ $BOARD == rock64 ]]; then
 	BOOT_USE_MAINLINE_ATF=yes
 	BOOT_SOC=rk3328
 
+elif [[ $BOARD == rock64 ]]; then
+
+	BOOT_USE_MAINLINE_ATF=yes
+	BOOT_SOC=rk3328
+
 elif [[ $BOOTCONFIG == *3328* ]]; then
 
 	BOOT_RK3328_USE_AYUFAN_ATF=yes
@@ -108,13 +113,6 @@ prepare_boot_configuration()
 		ATF_USE_GCC='> 6.3'
 		ATF_TARGET_MAP="M0_CROSS_COMPILE=arm-linux-gnueabi- PLAT=$BOOT_SOC bl31;;build/$BOOT_SOC/release/bl31/bl31.elf:bl31.bin"
 		ATF_TOOLCHAIN2="arm-linux-gnueabi-:> 5.0"
-		
-		if [[ $BOOT_SOC == rk3399 ]]; then
-			ATF_TARGET_MAP='M0_CROSS_COMPILE=arm-linux-gnueabi- PLAT=rk3399 bl31;;build/rk3399/release/bl31/bl31.elf:bl31.bin'
-		else
-			ATFBRANCH='tag:v2.3'
-			ATF_TARGET_MAP='PLAT=rk3328 bl31;;build/rk3328/release/bl31/bl31.elf:bl31.bin'
-		fi
 
 	elif [[ $BOOT_USE_TPL_SPL_BLOB == yes ]]; then
 
