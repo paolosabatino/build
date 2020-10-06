@@ -33,7 +33,7 @@ if [[ $BOARD == nanopi-r2s || $BOARD == rockpi-e || $BOARD == nanopineo3 || $BOA
 	MINILOADER_BLOB='rk33/rk322xh_miniloader_v2.50.bin'
 	BL31_BLOB='rk33/rk322xh_bl31_v1.44.elf'
 
-elif [[ $BOARD == rock64 ]]; then
+elif [[ $BOARD == rock64 || $BOARD == rk3318-box ]]; then
 
 	BOOT_USE_MAINLINE_ATF=yes
 	BOOT_SOC=rk3328
@@ -66,11 +66,6 @@ elif [[ $BOARD == rockpi-s ]]; then
 	DDR_BLOB='rk33/rk3308_ddr_589MHz_uart0_m0_v1.26.bin'
 	MINILOADER_BLOB='rk33/rk3308_miniloader_sd_nand_v1.13.bin'
 	BL31_BLOB='rk33/rk3308_bl31_v2.10.elf'
-
-elif [[ $BOARD == rk3318-box ]]; then
-
-	BOOT_USE_MAINLINE_ATF=yes
-	BOOT_SOC=rk3328	
 
 else
 
@@ -112,7 +107,7 @@ prepare_boot_configuration()
 		ATF_USE_GCC='> 6.3'
 		ATF_TARGET_MAP="M0_CROSS_COMPILE=arm-linux-gnueabi- PLAT=$BOOT_SOC bl31;;build/$BOOT_SOC/release/bl31/bl31.elf:bl31.bin"
 		ATF_TOOLCHAIN2="arm-linux-gnueabi-:> 5.0"
-		
+
 	elif [[ $BOOT_USE_TPL_SPL_BLOB == yes ]]; then
 
 		UBOOT_TARGET_MAP="BL31=$RKBIN_DIR/$BL31_BLOB idbloader.img u-boot.itb;;idbloader.img u-boot.itb"
