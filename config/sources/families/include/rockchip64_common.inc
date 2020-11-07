@@ -33,10 +33,12 @@ if [[ $BOARD == nanopi-r2s || $BOARD == rockpi-e || $BOARD == nanopineo3 || $BOA
 	MINILOADER_BLOB='rk33/rk322xh_miniloader_v2.50.bin'
 	BL31_BLOB='rk33/rk322xh_bl31_v1.44.elf'
 
-elif [[ $BOARD == rock64 || $BOARD == rk3318-box ]]; then
+elif [[ $BOARD == rk3318-box ]]; then
 
 	BOOT_USE_MAINLINE_ATF=yes
 	BOOT_SOC=rk3328
+	BOOT_USE_TPL_SPL_BLOB=yes
+	DDR_BLOB='rk33/rk3328_ddr_333MHz_v1.15.bin'
 
 elif [[ $BOARD == rock64 ]]; then
 
@@ -171,10 +173,19 @@ uboot_custom_postprocess()
 	if [[ $BOOT_USE_MAINLINE_ATF == yes || $BOOT_USE_TPL_SPL_BLOB == yes ]]; then
 
 		if [[ $BOOT_SUPPORT_SPI == yes ]]; then
+
 			tools/mkimage -n rk3399 -T rkspi -d tpl/u-boot-tpl.bin:spl/u-boot-spl.bin rkspi_tpl_spl.img
 			dd if=/dev/zero of=rkspi_loader.img count=8128 status=none
 			dd if=rkspi_tpl_spl.img of=rkspi_loader.img conv=notrunc status=none
 			dd if=u-boot.itb of=rkspi_loader.img seek=768 conv=notrunc status=none
+
+		elif [[ $BOOT_USE_TPL_SPL_BLOB == yes ]]; then
+
+			if [[ -n $DDR_BLOB ]]; then
+				tools/mkimage -n $BOOT_SOC -T rksd -d $RKBIN_DIR/$DDR_BLOB idbloader.img
+				cat spl/u-boot-spl.bin >> idbloader.img
+			fi
+
 		fi
 
 	elif [[ $BOOT_USE_BLOBS == yes ]]; then

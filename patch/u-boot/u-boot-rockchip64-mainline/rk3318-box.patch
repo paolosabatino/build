@@ -70,7 +70,7 @@ index 00000000..7631231e
 +        compatible = "rockchip,rk3318-box", "rockchip,rk3328";
 +
 +	chosen {
-+		stdout-path = "serial2:115200n8";
++		stdout-path = "serial2:1500000n8";
 +	};
 +
 +	gmac_clkin: external-gmac-clock {
