@@ -90,7 +90,7 @@ index 000000000..74cfbc022
 +		compatible = "regulator-fixed";
 +		gpio = <&gpio0 RK_PD6 GPIO_ACTIVE_LOW>;
 +		pinctrl-names = "default";
-+		pinctrl-0 = <&sdmmc0m1_gpio>;
++		pinctrl-0 = <&sdmmc0m1_pin>;
 +		regulator-name = "vcc_sd";
 +		regulator-always-on;
 +		regulator-boot-on;
