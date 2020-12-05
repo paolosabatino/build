@@ -25,7 +25,7 @@ else # rk3308, rk3328
 
 fi
 
-if [[ $BOARD == nanopi-r2s || $BOARD == rockpi-e || $BOARD == nanopineo3 || $BOARD == renegade ]]; then
+if [[ $BOARD == nanopi-r2s || $BOARD == rockpi-e || $BOARD == nanopineo3 || $BOARD == renegade || $BOARD == station-m1 ]]; then
 
 	BOOT_USE_BLOBS=yes
 	BOOT_SOC=rk3328
@@ -55,7 +55,16 @@ elif [[ $BOARD == pinebook-pro ]]; then
 	BOOT_SOC=rk3399
 	ATFPATCHDIR='atf-rk3399'
 
-elif [[ $BOARD == rockpi-4* || $BOARD == rockpro64 ]]; then
+elif [[ $BOARD == rockpi-4* ]]; then
+
+	BOOT_USE_BLOBS=yes
+	BOOT_SUPPORT_SPI=yes
+	BOOT_SOC=rk3399
+	DDR_BLOB='rk33/rk3399_ddr_933MHz_v1.24.bin'
+	MINILOADER_BLOB='rk33/rk3399_miniloader_v1.19.bin'
+	BL31_BLOB='rk33/rk3399_bl31_v1.30.elf'
+
+elif [[ $BOARD == rockpro64 ]]; then
 
 	BOOT_USE_TPL_SPL_BLOB=yes
 	BOOT_SUPPORT_SPI=yes
@@ -81,7 +90,7 @@ case $BRANCH in
 	current)
 
 		KERNELPATCHDIR='rockchip64-'$BRANCH
-		KERNELBRANCH="branch:linux-5.8.y"
+		KERNELBRANCH="branch:linux-5.9.y"
 		LINUXFAMILY=rockchip64
 		LINUXCONFIG='linux-rockchip64-'$BRANCH
 
@@ -89,8 +98,9 @@ case $BRANCH in
 
 	dev)
 
+		MAINLINE_KERNEL_SOURCE='https://github.com/torvalds/linux.git'
 		KERNELPATCHDIR='rockchip64-'$BRANCH
-		KERNELBRANCH="branch:linux-5.9.y"
+		KERNELBRANCH="tag:v5.10-rc6"
 		LINUXFAMILY=rockchip64
 		LINUXCONFIG='linux-rockchip64-'$BRANCH
 
@@ -148,7 +158,7 @@ prepare_boot_configuration()
 
 	if [[ $BOOT_SUPPORT_SPI == yes ]]; then
 
-		UBOOT_TARGET_MAP+=" rkspi_loader.img"
+		UBOOT_TARGET_MAP="BL31=$RKBIN_DIR/$BL31_BLOB tpl/u-boot-tpl.bin spl/u-boot-spl.bin u-boot.itb ${UBOOT_TARGET_MAP} rkspi_loader.img"
 
 	fi
 }
@@ -221,6 +231,13 @@ uboot_custom_postprocess()
 		echo "Unsupported u-boot processing configuration!"
 		exit 1
 	fi
+
+	if [[ $BOOT_SUPPORT_SPI == yes ]]; then
+		tools/mkimage -n $BOOT_SOC -T rkspi -d tpl/u-boot-tpl.bin:spl/u-boot-spl.bin rkspi_tpl_spl.img
+		dd if=/dev/zero of=rkspi_loader.img count=8128 status=none
+		dd if=rkspi_tpl_spl.img of=rkspi_loader.img conv=notrunc status=none
+		dd if=u-boot.itb of=rkspi_loader.img seek=768 conv=notrunc status=none
+	fi
 }
 
 write_uboot_platform()
@@ -252,7 +269,7 @@ write_uboot_platform_mtd()
 	if [[ -f $1/rkspi_loader.img ]]; then
 
 		dd if=$1/rkspi_loader.img of=$2 conv=notrunc status=none >/dev/null 2>&1
-	
+
 	else
 
 		echo "SPI u-boot image not found!"
@@ -326,7 +343,7 @@ family_tweaks()
 family_tweaks_bsp()
 {
 
-	if [[ $BOOTCONFIG == *3328* ]] && [[ $BRANCH != legacy ]]; then	
+	if [[ $BOOTCONFIG == *3328* ]] && [[ $BRANCH != legacy ]]; then
 		mkdir -p "$destination"/etc/X11/xorg.conf.d
 		cat <<-EOF > "$destination"/etc/X11/xorg.conf.d/02-driver.conf
 		# set fbdev as default driver.
@@ -364,7 +381,7 @@ family_tweaks_bsp()
 		mkdir -p $destination/etc/udev/hwdb.d/
 		cp $SRC/packages/bsp/pinebook-pro/10-usb-kbd.hwdb $destination/etc/udev/hwdb.d/
 		## brightness and power management defaults
-		mkdir -p $destination/usr/local/share/xdg/xfce4/xfconf/xfce-perchannel-xml/		
+		mkdir -p $destination/usr/local/share/xdg/xfce4/xfconf/xfce-perchannel-xml/
 		cp $SRC/packages/bsp/pinebook-pro/xfce4-power-manager.xml $destination/usr/local/share/xdg/xfce4/xfconf/xfce-perchannel-xml/
 		## additional keyboard configs in lib/desktop.sh
 
@@ -374,9 +391,11 @@ family_tweaks_bsp()
 
 		mkdir -p $destination/etc/udev/rules.d/
 		mkdir -p $destination/etc/systemd/system/fancontrol.service.d/
+		mkdir -p $destination/lib/systemd/system/
 		mkdir -p $destination/lib/systemd/system-shutdown/
 		cp $SRC/packages/bsp/helios64/50-usb-realtek-net.rules $destination/etc/udev/rules.d/
 		cp $SRC/packages/bsp/helios64/70-keep-usb-lan-as-eth1.rules $destination/etc/udev/rules.d/
+		cp $SRC/packages/bsp/helios64/90-helios64-ups.rules $destination/etc/udev/rules.d/
 		cp $SRC/packages/bsp/helios64/asound.conf $destination/etc/
 		install -m 755 $SRC/packages/bsp/helios64/disable_auto_poweron $destination/lib/systemd/system-shutdown/
 
@@ -394,7 +413,15 @@ family_tweaks_bsp()
 		install -m 644 $SRC/packages/bsp/helios64/fancontrol.conf $destination/etc/fancontrol
 
 		# LED tweak
-		cp $SRC/packages/bsp/helios64/helios64-heartbeat-led.service $destination/etc/systemd/system/
+		if [[ $BRANCH == legacy ]]; then
+			install -m 644 $SRC/packages/bsp/helios64/helios64-heartbeat-led-legacy.service $destination/etc/systemd/system/helios64-heartbeat-led.service
+		else
+			install -m 644 $SRC/packages/bsp/helios64/helios64-heartbeat-led.service $destination/etc/systemd/system/
+		fi
+
+		# UPS service
+		cp $SRC/packages/bsp/helios64/helios64-ups.service $destination/lib/systemd/system/
+		cp $SRC/packages/bsp/helios64/helios64-ups.timer $destination/lib/systemd/system/
 
 	fi
 

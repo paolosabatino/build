@@ -60,7 +60,7 @@ unset	LINUXFAMILY LINUXCONFIG KERNELDIR KERNELSOURCE KERNELBRANCH BOOTDIR BOOTSO
 		PACKAGE_LIST_BOARD PACKAGE_LIST_FAMILY PACKAGE_LIST_DESKTOP_BOARD PACKAGE_LIST_DESKTOP_FAMILY ATF_COMPILE ATFPATCHDIR OFFSET BOOTSOURCEDIR BOOT_USE_BLOBS \
 		BOOT_SOC DDR_BLOB MINILOADER_BLOB BL31_BLOB BOOT_RK3328_USE_AYUFAN_ATF BOOT_USE_BLOBS BOOT_RK3399_LEGACY_HYBRID \
 		BOOT_USE_MAINLINE_ATF BOOT_USE_TPL_SPL_BLOB BOOT_SUPPORT_SPI OFFLINE_WORK IMAGE_PARTITION_TABLE BOOT_LOGO UPSTREM_VER FORCED_MONTH_OFFSET \
-		PACKAGE_LIST_BOARD_REMOVE PACKAGE_LIST_FAMILY_REMOVE PACKAGE_LIST_DESKTOP_BOARD_REMOVE PACKAGE_LIST_DESKTOP_FAMILY_REMOVE BOOTCONFIG_DEV
+		PACKAGE_LIST_BOARD_REMOVE PACKAGE_LIST_FAMILY_REMOVE PACKAGE_LIST_DESKTOP_BOARD_REMOVE PACKAGE_LIST_DESKTOP_FAMILY_REMOVE BOOTCONFIG_DEV USE_OVERLAYFS
 }
 
 pack_upload ()
@@ -161,7 +161,7 @@ build_main ()
 		source "${SRC}"/lib/main.sh
 
 	fi
-
+	cd "${SRC}"
 	rm "/run/armbian/Armbian_${BOARD^}_${BRANCH}_${RELEASE}_${BUILD_DESKTOP}_${BUILD_MINIMAL}.pid"
 }
 
@@ -325,11 +325,9 @@ function build_all()
 			fi
 			if [[ "$store_hash" != idential ]]; then
 
-			((n+=1))
-
 			if [[ $1 != "dryrun" ]] && [[ $n -ge $START ]]; then
-
-							while :
+					((n+=1))
+						while :
 							do
 							if [[ $(find /run/armbian/*.pid 2>/dev/null | wc -l) -le ${MULTITHREAD} || ${MULTITHREAD} -eq 0  ]]; then
 								break
@@ -338,15 +336,19 @@ function build_all()
 							done
 
 					display_alert "Building ${n}."
-					if [[ "$KERNEL_ONLY" == "no" ]]; then
+					if [[ "$KERNEL_ONLY" == "no" && "${MULTITHREAD}" -gt 0 ]]; then
 						build_main &
+						sleep $((RANDOM % 5))
+					elif [[ "${MULTITHREAD}" -gt 0 ]]; then
+						build_main &
+						sleep $((RANDOM % 5))
 					else
 						build_main
 					fi
 
 			# create BSP for all boards
 			elif [[ "${BSP_BUILD}" == yes ]]; then
-
+				((n+=1))
 				for BOARD in "${unique_boards[@]}"
 				do
 					# shellcheck source=/dev/null
@@ -368,8 +370,11 @@ function build_all()
 						display_alert "BSP for ${BOARD} ${BRANCH} ${RELEASE}."
 						if [[ "$IGNORE_HASH" == yes && "$KERNEL_ONLY" != "yes" && "${MULTITHREAD}" -gt 0 ]]; then
 							build_main &
-							sleep 0.5
-							else
+							sleep 0.02
+						elif [[ "${MULTITHREAD}" -gt 0 ]]; then
+							build_main &
+							sleep $((RANDOM % 5))
+						else
 							build_main
 						fi
 						# unset non board related stuff
@@ -380,6 +385,7 @@ function build_all()
 				display_alert "Done building all BSP images"
 				exit
 			else
+				((n+=1))
 				# In dryrun it only prints out what will be build
                                 printf "%s\t%-32s\t%-8s\t%-14s\t%-6s\t%-6s\t%-6s\n" "${n}." \
                                 "$BOARD (${BOARDFAMILY})" "${BRANCH}" "${RELEASE}" "${BUILD_DESKTOP}" "${BUILD_MINIMAL}"

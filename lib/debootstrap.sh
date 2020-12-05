@@ -53,10 +53,10 @@ debootstrap_ng()
 	install_common
 
 	# install locally built packages
-	[[ $EXTERNAL_NEW == compile ]] && chroot_installpackages_local
+	[[ $EXTERNAL_NEW == compile ]] && chroot_installpackages_local >> "${DEST}"/debug/install.log 2>&1
 
 	# install from apt.armbian.com
-	[[ $EXTERNAL_NEW == prebuilt ]] && chroot_installpackages "yes"
+	[[ $EXTERNAL_NEW == prebuilt ]] && chroot_installpackages "yes" >> "${DEST}"/debug/install.log 2>&1
 
 	# stage: user customization script
 	# NOTE: installing too many packages may fill tmpfs mount
@@ -244,8 +244,10 @@ create_rootfs_cache()
 		chroot $SDCARD /bin/bash -c "apt-get clean"
 
 		# DEBUG: print free space
-		echo -e "\nFree space:"
-		eval 'df -h' ${PROGRESS_LOG_TO_FILE:+' | tee -a $DEST/debug/debootstrap.log'}
+		local freespace=$(LC_ALL=C df -h)
+		echo $freespace >> $DEST/debug/debootstrap.log
+		display_alert "Free SD cache" "$(echo -e "$freespace" | grep $SDCARD | awk '{print $5}')" "info"
+		display_alert "Mount point" "$(echo -e "$freespace" | grep $MOUNT | head -1 | awk '{print $5}')" "info"
 
 		# create list of installed packages for debug purposes
 		chroot $SDCARD /bin/bash -c "dpkg --get-selections" | grep -v deinstall | awk '{print $1}' | cut -f1 -d':' > ${cache_fname}.list 2>&1
@@ -416,8 +418,12 @@ prepare_partitions()
 
 	# stage: create blank image
 	display_alert "Creating blank image for rootfs" "$sdsize MiB" "info"
-	# truncate --size=${sdsize}M ${SDCARD}.raw # sometimes results in fs corruption, revert to previous know to work solution
-	dd if=/dev/zero bs=1M status=none count=$sdsize | pv -p -b -r -s $(( $sdsize * 1024 * 1024 )) -N "[ .... ] dd" | dd status=none of=${SDCARD}.raw
+	if [[ $FAST_CREATE_IMAGE == yes ]]; then
+		truncate --size=${sdsize}M ${SDCARD}.raw # sometimes results in fs corruption, revert to previous know to work solution
+		sync
+	else
+		dd if=/dev/zero bs=1M status=none count=$sdsize | pv -p -b -r -s $(( $sdsize * 1024 * 1024 )) -N "[ .... ] dd" | dd status=none of=${SDCARD}.raw
+	fi
 
 	# stage: calculate boot partition size
 	local bootstart=$(($OFFSET * 2048))
@@ -473,7 +479,7 @@ prepare_partitions()
 
 		check_loop_device "$rootdevice"
 		display_alert "Creating rootfs" "$ROOTFS_TYPE on $rootdevice"
-		mkfs.${mkfs[$ROOTFS_TYPE]} ${mkopts[$ROOTFS_TYPE]} $rootdevice
+		mkfs.${mkfs[$ROOTFS_TYPE]} ${mkopts[$ROOTFS_TYPE]} $rootdevice >> "${DEST}"/debug/install.log 2>&1
 		[[ $ROOTFS_TYPE == ext4 ]] && tune2fs -o journal_data_writeback $rootdevice > /dev/null
 		if [[ $ROOTFS_TYPE == btrfs && $BTRFS_COMPRESSION != none ]]; then
 			local fscreateopt="-o compress-force=${BTRFS_COMPRESSION}"
@@ -490,9 +496,9 @@ prepare_partitions()
 		echo "$rootfs / ${mkfs[$ROOTFS_TYPE]} defaults,noatime,nodiratime${mountopts[$ROOTFS_TYPE]} 0 1" >> $SDCARD/etc/fstab
 	fi
 	if [[ -n $bootpart ]]; then
-		display_alert "Creating /boot" "$bootfs"
+		display_alert "Creating /boot" "$bootfs on ${LOOP}p${bootpart}"
 		check_loop_device "${LOOP}p${bootpart}"
-		mkfs.${mkfs[$bootfs]} ${mkopts[$bootfs]} ${LOOP}p${bootpart}
+		mkfs.${mkfs[$bootfs]} ${mkopts[$bootfs]} ${LOOP}p${bootpart} >> "${DEST}"/debug/install.log 2>&1
 		mkdir -p $MOUNT/boot/
 		mount ${LOOP}p${bootpart} $MOUNT/boot/
 		echo "UUID=$(blkid -s UUID -o value ${LOOP}p${bootpart}) /boot ${mkfs[$bootfs]} defaults${mountopts[$bootfs]} 0 2" >> $SDCARD/etc/fstab
@@ -567,10 +573,10 @@ update_initramfs()
 	mount_chroot "$chroot_target/"
 
 	chroot $chroot_target /bin/bash -c "$update_initramfs_cmd" >> $DEST/debug/install.log 2>&1
-	display_alert "Updated initramfs." "for details see: $DEST/debug/install.log" "ext"
+	display_alert "Updated initramfs." "for details see: $DEST/debug/install.log" "info"
 
 	display_alert "Re-enabling" "initramfs-tools hook for kernel"
-	chroot "${SDCARD}" /bin/bash -c "chmod +x /etc/kernel/postinst.d/initramfs-tools" >> "${DEST}"/debug/install.log 2>&1
+	chroot $chroot_target /bin/bash -c "chmod -v +x /etc/kernel/postinst.d/initramfs-tools" >> "${DEST}"/debug/install.log 2>&1
 
 	umount_chroot "$chroot_target/"
 	rm $chroot_target/usr/bin/$QEMU_BINARY
@@ -590,9 +596,9 @@ create_image()
 	[[ $ROOTFS_TYPE == nfs ]] && version=${version}_nfsboot
 
 	if [[ $ROOTFS_TYPE != nfs ]]; then
-		display_alert "Copying files to root directory"
+		display_alert "Copying files to" "/"
 		rsync -aHWXh --exclude="/boot/*" --exclude="/dev/*" --exclude="/proc/*" --exclude="/run/*" --exclude="/tmp/*" \
-			--exclude="/sys/*" --info=progress2,stats1 $SDCARD/ $MOUNT/
+			--exclude="/sys/*" --info=progress2,stats1 $SDCARD/ $MOUNT/ >> "${DEST}"/debug/install.log 2>&1
 	else
 		display_alert "Creating rootfs archive" "rootfs.tgz" "info"
 		tar cp --xattrs --directory=$SDCARD/ --exclude='./boot/*' --exclude='./dev/*' --exclude='./proc/*' --exclude='./run/*' --exclude='./tmp/*' \
@@ -600,21 +606,23 @@ create_image()
 	fi
 
 	# stage: rsync /boot
-	display_alert "Copying files to /boot directory"
+	display_alert "Copying files to" "/boot"
 	if [[ $(findmnt --target $MOUNT/boot -o FSTYPE -n) == vfat ]]; then
 		# fat32
-		rsync -rLtWh --info=progress2,stats1 $SDCARD/boot $MOUNT
+		rsync -rLtWh --info=progress2,stats1 $SDCARD/boot $MOUNT >> "${DEST}"/debug/install.log 2>&1
 	else
 		# ext4
-		rsync -aHWXh --info=progress2,stats1 $SDCARD/boot $MOUNT
+		rsync -aHWXh --info=progress2,stats1 $SDCARD/boot $MOUNT >> "${DEST}"/debug/install.log 2>&1
 	fi
 
 	# stage: create final initramfs
 	update_initramfs $MOUNT
 
 	# DEBUG: print free space
-	display_alert "Free space:" "SD card" "info"
-	eval 'df -h' ${PROGRESS_LOG_TO_FILE:+' | tee -a $DEST/debug/debootstrap.log'}
+	local freespace=$(LC_ALL=C df -h)
+	echo $freespace >> $DEST/debug/debootstrap.log
+	display_alert "Free SD cache" "$(echo -e "$freespace" | grep $SDCARD | awk '{print $5}')" "info"
+	display_alert "Mount point" "$(echo -e "$freespace" | grep $MOUNT | head -1 | awk '{print $5}')" "info"
 
 	# stage: write u-boot
 	write_uboot $LOOP
@@ -698,7 +706,7 @@ create_image()
 	display_alert "Done building" "$DEST/images/${version}.img" "info"
 
 	if [[ $BUILD_ALL == yes ]]; then
-		install -d -o igorp -g igorp -m 775 $DEST/images/${BOARD}/{archive,nightly}
+		install -d -o nobody -g nogroup -m 775 $DEST/images/${BOARD}/{archive,nightly}
 		if [[ "$BETA" == yes ]]; then
 			install ${INSTALL_PARA} $DEST/images/"${version}"* $DEST/images/"${BOARD}"/nightly
 			rm $DEST/images/"${version}"*
