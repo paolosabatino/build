@@ -343,7 +343,7 @@ index 000000000..ee15bf1eb
 +		brcm,drive-strength = <4>;
 +		interrupt-parent = <&gpio1>;
 +		interrupt-names = "host_wake";
-+		interrupts = <RK_PC3 GPIO_ACTIVE_HIGH>; /* RK_PC3 ACTIVE_HIGH */
++		interrupts = <RK_PC3 IRQ_TYPE_LEVEL_LOW>;
 +		pinctrl-names = "default";
 +		pinctrl-0 = <&sdio_host_wake>;
 +	};
