@@ -91,14 +91,19 @@ write_uboot()
 {
 	local loop=$1 revision
 	display_alert "Writing U-boot bootloader" "$loop" "info"
-	mkdir -p /tmp/u-boot/
+	TEMP_DIR=$(mktemp -d || exit 1)
+	chmod 700 ${TEMP_DIR}
 	revision=${REVISION}
-	[[ -n $UPSTREM_VER ]] && revision=${UPSTREM_VER}
-	dpkg -x "${DEB_STORAGE}/${CHOSEN_UBOOT}_${revision}_${ARCH}.deb" /tmp/u-boot/
-	write_uboot_platform "/tmp/u-boot/usr/lib/${CHOSEN_UBOOT}_${revision}_${ARCH}" "$loop"
+	if [[ -n $UPSTREM_VER ]]; then
+		DEB_BRANCH=${DEB_BRANCH/-/}
+		revision=${UPSTREM_VER}
+		dpkg -x "${DEB_STORAGE}/linux-u-boot-${BOARD}-${DEB_BRANCH/-/}_${revision}_${ARCH}.deb" ${TEMP_DIR}/
+	else
+		dpkg -x "${DEB_STORAGE}/${CHOSEN_UBOOT}_${revision}_${ARCH}.deb" ${TEMP_DIR}/
+	fi
+	write_uboot_platform "${TEMP_DIR}/usr/lib/${CHOSEN_UBOOT}_${revision}_${ARCH}" "$loop"
 	[[ $? -ne 0 ]] && exit_with_error "U-boot bootloader failed to install" "@host"
-	rm -r /tmp/u-boot/
-	sync
+	rm -rf ${TEMP_DIR}
 } #############################################################################
 
 customize_image()
@@ -123,13 +128,24 @@ customize_image()
 install_deb_chroot()
 {
 	local package=$1
+	local variant=$2
+	local transfer=$3
 	local name
-	name=$(basename "${package}")
-	cp "${package}" "${SDCARD}/root/${name}"
-	display_alert "Installing" "$name"
-	[[ $NO_APT_CACHER != yes ]] && local apt_extra="-o Acquire::http::Proxy=\"http://${APT_PROXY_ADDR:-localhost:3142}\" -o Acquire::http::Proxy::localhost=\"DIRECT\""
-	LC_ALL=C LANG=C chroot "${SDCARD}" /bin/bash -c "DEBIAN_FRONTEND=noninteractive apt -yqq \
-		$apt_extra --no-install-recommends install ./root/$name" >> "${DEST}"/debug/install.log 2>&1
+	local desc
+	if [[ ${variant} != remote ]]; then
+		name="/root/"$(basename "${package}")
+		[[ ! -f "${SDCARD}${name}" ]] && cp "${package}" "${SDCARD}${name}"
+		desc=""
+	else
+		name=$1
+		desc=" from repository"
+	fi
 
-	rm -f "${SDCARD}/root/${name}"
+	display_alert "Installing${desc}" "${name/\/root\//}"
+	[[ $NO_APT_CACHER != yes ]] && local apt_extra="-o Acquire::http::Proxy=\"http://${APT_PROXY_ADDR:-localhost:3142}\" -o Acquire::http::Proxy::localhost=\"DIRECT\""
+	# when building in bulk from remote, lets make sure we have up2date index
+	[[ $BUILD_ALL == yes && ${variant} == remote ]] && chroot "${SDCARD}" /bin/bash -c "DEBIAN_FRONTEND=noninteractive apt-get $apt_extra -yqq update"
+	chroot "${SDCARD}" /bin/bash -c "DEBIAN_FRONTEND=noninteractive apt-get -yqq $apt_extra --no-install-recommends install $name" >> "${DEST}"/debug/install.log 2>&1
+	[[ $? -ne 0 ]] && exit_with_error "Installation of $name failed" "@host"
+	[[ ${variant} == remote && ${transfer} == yes ]] && rsync -rq "${SDCARD}"/var/cache/apt/archives/*.deb ${DEB_STORAGE}/
 }

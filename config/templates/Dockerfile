@@ -45,6 +45,7 @@ RUN apt-get update \
        gcc-arm-linux-gnueabihf \
        git \
        imagemagick \
+       jq \
        kmod \
        lib32ncurses6 \
        lib32stdc++6 \
@@ -68,6 +69,7 @@ RUN apt-get update \
        ncurses-term \
        nfs-kernel-server \
        ntpdate \
+       openssh-client \
        p7zip-full \
        parted \
        patchutils \
@@ -89,6 +91,7 @@ RUN apt-get update \
        udev \
        unzip \
        uuid-dev \
+       uuid-runtime \
        wget \
        whiptail \
        xxd \

@@ -21,10 +21,10 @@ USEALLCORES=yes # Use all CPU cores for compiling
 EXIT_PATCHING_ERROR="" # exit patching if failed
 [[ -z $HOST ]] && HOST="$BOARD" # set hostname to the board
 cd "${SRC}" || exit
-ROOTFSCACHE_VERSION=34
+ROOTFSCACHE_VERSION=1
 CHROOT_CACHE_VERSION=7
-BUILD_REPOSITORY_URL=$(git remote get-url $(git remote 2>/dev/null) 2>/dev/null)
-BUILD_REPOSITORY_COMMIT=$(git describe --match=d_e_a_d_b_e_e_f --always --dirty 2>/dev/null)
+BUILD_REPOSITORY_URL=$(improved_git remote get-url $(improved_git remote 2>/dev/null | grep origin) 2>/dev/null)
+BUILD_REPOSITORY_COMMIT=$(improved_git describe --match=d_e_a_d_b_e_e_f --always --dirty 2>/dev/null)
 ROOTFS_CACHE_MAX=42 # max number of rootfs cache, older ones will be cleaned up
 
 if [[ $BETA == yes ]]; then
@@ -41,7 +41,10 @@ fi
 ROOT_MAPPER="armbian-root"
 
 [[ -z $ROOTFS_TYPE ]] && ROOTFS_TYPE=ext4 # default rootfs type is ext4
-[[ "ext4 f2fs btrfs nfs fel" != *$ROOTFS_TYPE* ]] && exit_with_error "Unknown rootfs type" "$ROOTFS_TYPE"
+[[ "ext4 f2fs btrfs xfs nfs fel" != *$ROOTFS_TYPE* ]] && exit_with_error "Unknown rootfs type" "$ROOTFS_TYPE"
+
+[[ -z $BTRFS_COMPRESSION ]] && BTRFS_COMPRESSION=zlib # default btrfs filesystem compression method is zlib
+[[ ! $BTRFS_COMPRESSION =~ zlib|lzo|zstd|none ]] && exit_with_error "Unknown btrfs compression method" "$BTRFS_COMPRESSION"
 
 # Fixed image size is in 1M dd blocks (MiB)
 # to get size of block device /dev/sdX execute as root:
@@ -68,7 +71,7 @@ MAINLINE_KERNEL_DIR='linux-mainline'
 if [[ $USE_GITHUB_UBOOT_MIRROR == yes ]]; then
 	MAINLINE_UBOOT_SOURCE='https://github.com/RobertCNelson/u-boot'
 else
-	MAINLINE_UBOOT_SOURCE='git://git.denx.de/u-boot.git'
+	MAINLINE_UBOOT_SOURCE='https://gitlab.denx.de/u-boot/u-boot.git'
 fi
 MAINLINE_UBOOT_DIR='u-boot'
 
@@ -80,6 +83,11 @@ CAN_BUILD_STRETCH=yes
 ATF_COMPILE=yes
 [[ -z $CRYPTROOT_SSH_UNLOCK ]] && CRYPTROOT_SSH_UNLOCK=yes
 [[ -z $CRYPTROOT_SSH_UNLOCK_PORT ]] && CRYPTROOT_SSH_UNLOCK_PORT=2022
+# Default to pdkdf2, this used to be the default with cryptroot <= 2.0, however
+# cryptroot 2.1 changed that to Argon2i. Argon2i is a memory intensive
+# algorithm which doesn't play well with SBCs (need 1GiB RAM by default !)
+# https://gitlab.com/cryptsetup/cryptsetup/-/issues/372
+[[ -z $CRYPTROOT_PARAMETERS ]] && CRYPTROOT_PARAMETERS="--pbkdf pbkdf2"
 [[ -z $WIREGUARD ]] && WIREGUARD="yes"
 [[ -z $EXTRAWIFI ]] && EXTRAWIFI="yes"
 [[ -z $AUFS ]] && AUFS="yes"
@@ -123,7 +131,7 @@ BOOTCONFIG_VAR_NAME=BOOTCONFIG_${BRANCH^^}
 [[ -z $ATFPATCHDIR ]] && ATFPATCHDIR="atf-$LINUXFAMILY"
 [[ -z $KERNELPATCHDIR ]] && KERNELPATCHDIR="$LINUXFAMILY-$BRANCH"
 
-if [[ $RELEASE == xenial || $RELEASE == bionic || $RELEASE == focal || $RELEASE == eoan ]]; then
+if [[ $RELEASE == xenial || $RELEASE == bionic || $RELEASE == focal || $RELEASE == groovy ]]; then
 		DISTRIBUTION="Ubuntu"
 	else
 		DISTRIBUTION="Debian"
@@ -145,6 +153,8 @@ DEBOOTSTRAP_LIST=$(echo $DEBOOTSTRAP_LIST | sed -e 's,\\[trn],,g')
 PACKAGE_LIST="bc cpufrequtils device-tree-compiler fping fake-hwclock psmisc chrony parted dialog \
 		ncurses-term sysfsutils toilet figlet u-boot-tools usbutils openssh-server \
 		nocache debconf-utils python3-apt"
+
+[[ $ROOTFS_TYPE == xfs ]] && PACKAGE_LIST="$PACKAGE_LIST xfsprogs"
 
 # Non-essential packages for minimal build
 PACKAGE_LIST_ADDITIONAL="network-manager wireless-tools lsof htop mmc-utils wget nano sysstat net-tools resolvconf iozone3 jq libcrack2 cracklib-runtime curl"
@@ -181,7 +191,7 @@ PACKAGE_LIST_DESKTOP_RECOMMENDS="galculator hexchat xfce4-screenshooter network-
 	cups-pk-helper cups geany atril xarchiver"
 
 # Full desktop packages
-PACKAGE_LIST_DESKTOP_FULL="libreoffice libreoffice-style-tango meld remmina kazam avahi-daemon transmission"
+PACKAGE_LIST_DESKTOP_FULL="libreoffice libreoffice-style-breeze meld remmina kazam avahi-daemon transmission"
 
 # Packages installed before desktop.
 PACKAGE_LIST_PREDEPENDS=""
@@ -249,7 +259,7 @@ case $RELEASE in
 		PACKAGE_LIST_PREDEPENDS="policykit-1-gnome notification-daemon"
 	;;
 
-	eoan)
+	groovy)
 		DEBOOTSTRAP_COMPONENTS="main,universe"
 		DEBOOTSTRAP_LIST+=" rng-tools fdisk"
 		[[ -z $BUILD_MINIMAL || $BUILD_MINIMAL == no ]] && PACKAGE_LIST_RELEASE="man-db kbd net-tools gnupg2 dirmngr networkd-dispatcher selinux-policy-default"
@@ -272,6 +282,8 @@ if [[ $DOWNLOAD_MIRROR == china ]] ; then
 	DEBIAN_SECURTY='mirrors.tuna.tsinghua.edu.cn/debian-security'
 	UBUNTU_MIRROR='mirrors.tuna.tsinghua.edu.cn/ubuntu-ports/'
 fi
+
+ARMBIAN_MIRROR='https://redirect.armbian.com'
 
 # For user override
 if [[ -f $USERPATCHES_PATH/lib.config ]]; then
