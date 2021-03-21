@@ -11,6 +11,7 @@ index 26661c7b7..1462ed38b 100644
 +dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3328-roc-pc.dtb
 +dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3328-rock-pi-e.dtb
 +dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3328-z28pro.dtb
++dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3318-box.dtb
 +dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3399-kobol-helios64.dtb
 +dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3399-nanopi-m4v2.dtb
 +dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3399-nanopi-r4s.dtb
