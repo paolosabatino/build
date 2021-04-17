@@ -12,10 +12,10 @@ index 516299702..9c050dba5 100644
  dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3328-nanopi-r2-rev00.dtb
 diff --git a/arch/arm64/boot/dts/rockchip/rk3318-box.dts b/arch/arm64/boot/dts/rockchip/rk3318-box.dts
 new file mode 100644
-index 000000000..ee15bf1eb
+index 000000000..a8059225f
 --- /dev/null
 +++ b/arch/arm64/boot/dts/rockchip/rk3318-box.dts
-@@ -0,0 +1,628 @@
+@@ -0,0 +1,607 @@
 +// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 +/*
 + * Copyright (c) 2020 Paolo Sabatino
@@ -161,7 +161,7 @@ index 000000000..ee15bf1eb
 +		vin-supply = <&vcc_sys>;
 +	};
 +
-+	leds {
++	gpio_led: gpio-leds {
 +		compatible = "gpio-leds";
 +
 +		pinctrl-names = "default";
@@ -169,7 +169,7 @@ index 000000000..ee15bf1eb
 +
 +		working {
 +			gpios = <&gpio2 RK_PC7 GPIO_ACTIVE_LOW>;
-+			linux,default-trigger = "default-on";
++			linux,default-trigger = "timer";
 +			default-state = "on";
 +		};
 +
@@ -293,7 +293,6 @@ index 000000000..ee15bf1eb
 +	no-sdio;
 +	no-sd;
 +	cap-mmc-highspeed;
-+	mmc-ddr-1_8v;
 +	disable-wp;
 +	non-removable;
 +	bus-width = <8>;
@@ -336,17 +335,6 @@ index 000000000..ee15bf1eb
 +	pinctrl-0 = <&sdmmc1_bus4 &sdmmc1_cmd &sdmmc1_clk>;
 +	supports-sdio;
 +	status = "okay";
-+
-+	brcmf: wifi@1 {
-+		reg = <1>;
-+		compatible = "brcm,bcm4329-fmac";
-+		brcm,drive-strength = <4>;
-+		interrupt-parent = <&gpio1>;
-+		interrupt-names = "host_wake";
-+		interrupts = <RK_PC3 IRQ_TYPE_LEVEL_LOW>;
-+		pinctrl-names = "default";
-+		pinctrl-0 = <&sdio_host_wake>;
-+	};
 +
 +};
 +
@@ -517,15 +505,6 @@ index 000000000..ee15bf1eb
 +	pinctrl-names = "default";
 +	pinctrl-0 = <&uart0_xfer &uart0_cts>;
 +	status = "okay";
-+
-+	bluetooth {
-+		compatbile = "brcm,bcm43341-bt";
-+		max-speed = <1500000>;
-+		shutdown-gpios = <&gpio1 RK_PC5 GPIO_ACTIVE_HIGH>;
-+		interrupt-names = "host-wakeup";
-+		interrupts = <&gpio1 RK_PD2 GPIO_ACTIVE_HIGH>;
-+		brcm,bt-pcm-int-params = [01 02 00 01 01];
-+	};
 +
 +};
 +
