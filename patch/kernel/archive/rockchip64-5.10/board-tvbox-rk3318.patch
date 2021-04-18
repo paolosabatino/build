@@ -12,21 +12,29 @@ index 516299702..9c050dba5 100644
  dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3328-nanopi-r2-rev00.dtb
 diff --git a/arch/arm64/boot/dts/rockchip/rk3318-box.dts b/arch/arm64/boot/dts/rockchip/rk3318-box.dts
 new file mode 100644
-index 000000000..a8059225f
+index 000000000..e5ec75a0c
 --- /dev/null
 +++ b/arch/arm64/boot/dts/rockchip/rk3318-box.dts
-@@ -0,0 +1,607 @@
+@@ -0,0 +1,629 @@
 +// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 +/*
 + * Copyright (c) 2020 Paolo Sabatino
 + */
 +
 +/dts-v1/;
++#include "dt-bindings/pwm/pwm.h"
 +#include "rk3328.dtsi"
 +
 +/ {
 +	model = "Rockchip RK3318 BOX";
 +	compatible = "rockchip,rk3318-box", "rockchip,rk3328-box", "rockchip,rk3328";
++
++	aliases {
++		mmc0 = &sdmmc;
++		mmc1 = &sdio;
++		mmc2 = &emmc;
++		mmc3 = &sdmmc_ext;
++	};
 +
 +	chosen {
 +		stdout-path = "serial2:1500000n8";
@@ -133,9 +141,7 @@ index 000000000..a8059225f
 +
 +	vdd_arm: vdd-arm {
 +		compatible = "pwm-regulator";
-+		rockchip,pwm_id = <0>;
-+		rockchip,pwm_voltage = <1100000>;
-+		pwms = <&pwm0 0 5000 1>;
++		pwms = <&pwm0 0 5000 PWM_POLARITY_INVERTED>;
 +		regulator-name = "vdd_arm";
 +		regulator-min-microvolt = <950000>;
 +		regulator-max-microvolt = <1400000>;
@@ -148,9 +154,7 @@ index 000000000..a8059225f
 +
 +	vdd_logic: vdd-log {
 +		compatible = "pwm-regulator";
-+		rockchip,pwm_id = <1>;
-+		rockchip,pwm_voltage = <1200000>;
-+		pwms = <&pwm1 0 5000 1>;
++		pwms = <&pwm1 0 5000 PWM_POLARITY_INVERTED>;
 +		regulator-name = "vdd_log";
 +		regulator-min-microvolt = <900000>;
 +		regulator-max-microvolt = <1300000>;
@@ -168,7 +172,7 @@ index 000000000..a8059225f
 +		pinctrl-0 = <&working_led>;
 +
 +		working {
-+			gpios = <&gpio2 RK_PC7 GPIO_ACTIVE_LOW>;
++			gpios = <&gpio2 RK_PC7 GPIO_ACTIVE_HIGH>;
 +			linux,default-trigger = "timer";
 +			default-state = "on";
 +		};
@@ -336,6 +340,24 @@ index 000000000..a8059225f
 +	supports-sdio;
 +	status = "okay";
 +
++};
++
++&sdmmc_ext {
++	#address-cells = <1>;
++	#size-cells = <0>;
++	bus-width = <4>;
++	cap-sd-highspeed;
++	cap-sdio-irq;
++	disable-wp;
++	keep-power-in-suspend;
++	max-frequency = <150000000>;
++	mmc-pwrseq = <&sdio_pwrseq>;
++	non-removable;
++	num-slots = <1>;
++	pinctrl-0 = <&sdmmc0ext_cmd &sdmmc0ext_clk &sdmmc0ext_bus4>;
++	pinctrl-names = "default";
++	supports-sdio;
++	status = "disabled";
 +};
 +
 +&gmac2phy {

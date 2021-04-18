@@ -40,10 +40,10 @@ index 01fa6f4ee..0e7eaeea2 100644
 +wifi chip and clones
 diff --git a/arch/arm64/boot/dts/rockchip/overlay/rockchip-rk3318-box-wlan-ap6334.dts b/arch/arm64/boot/dts/rockchip/overlay/rockchip-rk3318-box-wlan-ap6334.dts
 new file mode 100644
-index 000000000..ec1931f24
+index 000000000..59784fcfc
 --- /dev/null
 +++ b/arch/arm64/boot/dts/rockchip/overlay/rockchip-rk3318-box-wlan-ap6334.dts
-@@ -0,0 +1,48 @@
+@@ -0,0 +1,69 @@
 +/dts-v1/;
 +/plugin/;
 +
@@ -60,7 +60,7 @@ index 000000000..ec1931f24
 +			#address-cells = <1>;
 +			#size-cells = <0>;
 +
-+			brcmf: wifi@1 {
++			brcmf_sdio: wifi@1 {
 +				reg = <1>;
 +				compatible = "brcm,bcm4329-fmac";
 +				brcm,drive-strength = <4>;
@@ -75,6 +75,27 @@ index 000000000..ec1931f24
 +	};
 +
 +	fragment@1 {
++		target = <&sdmmc_ext>;
++		__overlay__ {
++
++			#address-cells = <1>;
++			#size-cells = <0>;
++
++			brcmf_ext: wifi@1 {
++				reg = <1>;
++				compatible = "brcm,bcm4329-fmac";
++				brcm,drive-strength = <4>;
++				interrupt-parent = <&gpio1>;
++				interrupt-names = "host_wake";
++				interrupts = <RK_PC3 IRQ_TYPE_LEVEL_LOW>;
++				pinctrl-names = "default";
++				pinctrl-0 = <&sdio_host_wake>;
++			};
++
++		};
++	};
++
++	fragment@2 {
 +		target = <&uart0>;
 +		__overlay__ {
 +
