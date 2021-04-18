@@ -40,10 +40,10 @@ index 01fa6f4ee..0e7eaeea2 100644
 +wifi chip and clones
 diff --git a/arch/arm64/boot/dts/rockchip/overlay/rockchip-rk3318-box-wlan-ap6334.dts b/arch/arm64/boot/dts/rockchip/overlay/rockchip-rk3318-box-wlan-ap6334.dts
 new file mode 100644
-index 000000000..59784fcfc
+index 000000000..272fb0aef
 --- /dev/null
 +++ b/arch/arm64/boot/dts/rockchip/overlay/rockchip-rk3318-box-wlan-ap6334.dts
-@@ -0,0 +1,69 @@
+@@ -0,0 +1,98 @@
 +/dts-v1/;
 +/plugin/;
 +
@@ -99,17 +99,46 @@ index 000000000..59784fcfc
 +		target = <&uart0>;
 +		__overlay__ {
 +
++			pinctrl-names = "default";
++			pinctrl-0 = <&uart0_xfer &uart0_rts &uart0_cts>;
++
 +			bluetooth {
-+				compatbile = "brcm,bcm43341-bt";
-+				max-speed = <1500000>;
++				compatible = "brcm,bcm4334b0-bt", "brcm,bcm4330-bt";
++				max-speed = <4000000>;
 +				shutdown-gpios = <&gpio1 RK_PC5 GPIO_ACTIVE_HIGH>;
-+				interrupt-names = "host-wakeup";
-+				interrupts = <&gpio1 RK_PD2 GPIO_ACTIVE_HIGH>;
++				device-wakeup-gpios = <&gpio1 RK_PD2 GPIO_ACTIVE_HIGH>;
++				vbat-supply = <&vcc_io>;
++				vddio-supply = <&vcc_18>;
++				pinctrl-names = "default";
++				pinctrl-0 = <&bt_reg_on_h>, <&bt_host_wake_l>;
++				/*interrupt-names = "host-wakeup";
++				interrupt-parent = <&gpio1>;
++				interrupts = <RK_PD2 IRQ_TYPE_LEVEL_LOW>;*/
 +				brcm,bt-pcm-int-params = [01 02 00 01 01];
 +			};
 +
 +		};
 +
++	};
++
++	fragment@3 {
++		target = <&pinctrl>;
++		__overlay__ {
++
++			bluetooth {
++
++
++				bt_reg_on_h: bt-enable {
++					rockchip,pins = <1 RK_PC5 0 &pcfg_pull_none>;
++				};
++
++				bt_host_wake_l: bt-host-wake {
++					rockchip,pins = <1 RK_PD2 0 &pcfg_pull_none>;
++				};
++
++			};
++
++		};
 +	};
 +
 +};
