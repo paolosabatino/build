@@ -1,20 +1,40 @@
+diff --git a/arch/arm64/boot/dts/rockchip/Makefile b/arch/arm64/boot/dts/rockchip/Makefile
+index 516299702..9c050dba5 100644
+--- a/arch/arm64/boot/dts/rockchip/Makefile
++++ b/arch/arm64/boot/dts/rockchip/Makefile
+@@ -4,6 +4,7 @@ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3308-evb.dtb
+ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3308-roc-cc.dtb
+ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3308-rock-pi-s.dtb
+ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3326-odroid-go2.dtb
++dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3318-box.dtb
+ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3328-a1.dtb
+ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3328-evb.dtb
+ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3328-nanopi-r2-rev00.dtb
 diff --git a/arch/arm64/boot/dts/rockchip/rk3318-box.dts b/arch/arm64/boot/dts/rockchip/rk3318-box.dts
 new file mode 100644
-index 000000000..ee15bf1eb
+index 000000000..13ed60be6
 --- /dev/null
 +++ b/arch/arm64/boot/dts/rockchip/rk3318-box.dts
-@@ -0,0 +1,628 @@
+@@ -0,0 +1,621 @@
 +// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 +/*
 + * Copyright (c) 2020 Paolo Sabatino
 + */
 +
 +/dts-v1/;
++#include "dt-bindings/pwm/pwm.h"
 +#include "rk3328.dtsi"
 +
 +/ {
 +	model = "Rockchip RK3318 BOX";
 +	compatible = "rockchip,rk3318-box", "rockchip,rk3328-box", "rockchip,rk3328";
++
++	aliases {
++		mmc0 = &sdmmc;
++		mmc1 = &sdio;
++		mmc2 = &emmc;
++		mmc3 = &sdmmc_ext;
++	};
 +
 +	chosen {
 +		stdout-path = "serial2:1500000n8";
@@ -121,9 +141,7 @@ index 000000000..ee15bf1eb
 +
 +	vdd_arm: vdd-arm {
 +		compatible = "pwm-regulator";
-+		rockchip,pwm_id = <0>;
-+		rockchip,pwm_voltage = <1100000>;
-+		pwms = <&pwm0 0 5000 1>;
++		pwms = <&pwm0 0 5000 PWM_POLARITY_INVERTED>;
 +		regulator-name = "vdd_arm";
 +		regulator-min-microvolt = <950000>;
 +		regulator-max-microvolt = <1400000>;
@@ -136,9 +154,7 @@ index 000000000..ee15bf1eb
 +
 +	vdd_logic: vdd-log {
 +		compatible = "pwm-regulator";
-+		rockchip,pwm_id = <1>;
-+		rockchip,pwm_voltage = <1200000>;
-+		pwms = <&pwm1 0 5000 1>;
++		pwms = <&pwm1 0 5000 PWM_POLARITY_INVERTED>;
 +		regulator-name = "vdd_log";
 +		regulator-min-microvolt = <900000>;
 +		regulator-max-microvolt = <1300000>;
@@ -149,15 +165,15 @@ index 000000000..ee15bf1eb
 +		vin-supply = <&vcc_sys>;
 +	};
 +
-+	leds {
++	gpio_led: gpio-leds {
 +		compatible = "gpio-leds";
 +
 +		pinctrl-names = "default";
 +		pinctrl-0 = <&working_led>;
 +
 +		working {
-+			gpios = <&gpio2 RK_PC7 GPIO_ACTIVE_LOW>;
-+			linux,default-trigger = "default-on";
++			gpios = <&gpio2 RK_PC7 GPIO_ACTIVE_HIGH>;
++			linux,default-trigger = "timer";
 +			default-state = "on";
 +		};
 +
@@ -281,7 +297,6 @@ index 000000000..ee15bf1eb
 +	no-sdio;
 +	no-sd;
 +	cap-mmc-highspeed;
-+	mmc-ddr-1_8v;
 +	disable-wp;
 +	non-removable;
 +	bus-width = <8>;
@@ -325,17 +340,24 @@ index 000000000..ee15bf1eb
 +	supports-sdio;
 +	status = "okay";
 +
-+	brcmf: wifi@1 {
-+		reg = <1>;
-+		compatible = "brcm,bcm4329-fmac";
-+		brcm,drive-strength = <4>;
-+		interrupt-parent = <&gpio1>;
-+		interrupt-names = "host_wake";
-+		interrupts = <RK_PC3 IRQ_TYPE_LEVEL_LOW>;
-+		pinctrl-names = "default";
-+		pinctrl-0 = <&sdio_host_wake>;
-+	};
++};
 +
++&sdmmc_ext {
++	#address-cells = <1>;
++	#size-cells = <0>;
++	bus-width = <4>;
++	cap-sd-highspeed;
++	cap-sdio-irq;
++	disable-wp;
++	keep-power-in-suspend;
++	max-frequency = <150000000>;
++	mmc-pwrseq = <&sdio_pwrseq>;
++	non-removable;
++	num-slots = <1>;
++	pinctrl-0 = <&sdmmc0ext_cmd &sdmmc0ext_clk &sdmmc0ext_bus4>;
++	pinctrl-names = "default";
++	supports-sdio;
++	status = "disabled";
 +};
 +
 +&gmac2phy {
@@ -457,12 +479,6 @@ index 000000000..ee15bf1eb
 +		};
 +	};
 +
-+	wireless-bluetooth {
-+		uart0_gpios: uart0-gpios {
-+			rockchip,pins = <1 RK_PB2 RK_FUNC_GPIO &pcfg_pull_none>;
-+		};
-+	};
-+
 +	wireless-wlan {
 +		sdio_host_wake: sdio-host-wake {
 +			rockchip,pins = <1 RK_PC3 RK_FUNC_GPIO &pcfg_pull_none>;
@@ -502,18 +518,7 @@ index 000000000..ee15bf1eb
 +
 +&uart0 {
 +
-+	pinctrl-names = "default";
-+	pinctrl-0 = <&uart0_xfer &uart0_cts>;
 +	status = "okay";
-+
-+	bluetooth {
-+		compatbile = "brcm,bcm43341-bt";
-+		max-speed = <1500000>;
-+		shutdown-gpios = <&gpio1 RK_PC5 GPIO_ACTIVE_HIGH>;
-+		interrupt-names = "host-wakeup";
-+		interrupts = <&gpio1 RK_PD2 GPIO_ACTIVE_HIGH>;
-+		brcm,bt-pcm-int-params = [01 02 00 01 01];
-+	};
 +
 +};
 +
