@@ -12,10 +12,10 @@ index 516299702..9c050dba5 100644
  dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3328-nanopi-r2-rev00.dtb
 diff --git a/arch/arm64/boot/dts/rockchip/rk3318-box.dts b/arch/arm64/boot/dts/rockchip/rk3318-box.dts
 new file mode 100644
-index 000000000..c88ffba17
+index 000000000..d0501eda8
 --- /dev/null
 +++ b/arch/arm64/boot/dts/rockchip/rk3318-box.dts
-@@ -0,0 +1,955 @@
+@@ -0,0 +1,965 @@
 +// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 +/*
 + * Copyright (c) 2020 Paolo Sabatino
@@ -637,12 +637,14 @@ index 000000000..c88ffba17
 +	cap-mmc-highspeed;
 +	cap-sd-highspeed;
 +	card-detect-delay = <800>;
++	cd-gpios = <&gpio1 RK_PA5 GPIO_ACTIVE_LOW>;
 +	disable-wp;
++	no-sdio;
 +	pinctrl-names = "default";
 +	pinctrl-0 = <&sdmmc0_clk &sdmmc0_cmd &sdmmc0_dectn &sdmmc0_bus4>;
 +	supports-sd;
-+	vmmc-supply = <&vcc_sd>;
 +	status = "okay";
++	vmmc-supply = <&vcc_sd>;
 +};
 +
 +&sdio {
@@ -957,6 +959,14 @@ index 000000000..c88ffba17
 +};
 +
 +&cpu0_opp_table {
++
++	opp-1200000000 {
++		status = "disabled";
++	};
++
++	opp-1296000000 {
++		status = "disabled";
++	};
 +
 +	opp-1512000000 {
 +		status = "disabled";

@@ -40,10 +40,10 @@ index 01fa6f4ee..0e7eaeea2 100644
 +wifi chip and clones
 diff --git a/arch/arm64/boot/dts/rockchip/overlay/rockchip-rk3318-box-wlan-ap6334.dts b/arch/arm64/boot/dts/rockchip/overlay/rockchip-rk3318-box-wlan-ap6334.dts
 new file mode 100644
-index 000000000..a21b54257
+index 000000000..3ed5d7959
 --- /dev/null
 +++ b/arch/arm64/boot/dts/rockchip/overlay/rockchip-rk3318-box-wlan-ap6334.dts
-@@ -0,0 +1,105 @@
+@@ -0,0 +1,117 @@
 +/dts-v1/;
 +/plugin/;
 +
@@ -60,10 +60,16 @@ index 000000000..a21b54257
 +			#address-cells = <1>;
 +			#size-cells = <0>;
 +
++			sd-uhs-sdr12;
++			sd-uhs-sdr25;
++			sd-uhs-sdr50;
++			sd-uhs-sdr104;
++			//sd-uhs-ddr50;
++
 +			brcmf_sdio: wifi@1 {
 +				reg = <1>;
 +				compatible = "brcm,bcm4329-fmac";
-+				brcm,drive-strength = <4>;
++				//brcm,drive-strength = <4>;
 +				interrupt-parent = <&gpio1>;
 +				interrupt-names = "host_wake";
 +				interrupts = <RK_PC3 IRQ_TYPE_LEVEL_LOW>;
@@ -81,10 +87,16 @@ index 000000000..a21b54257
 +			#address-cells = <1>;
 +			#size-cells = <0>;
 +
++			sd-uhs-sdr12;
++			sd-uhs-sdr25;
++			sd-uhs-sdr50;
++			sd-uhs-sdr104;
++			//sd-uhs-ddr50;
++
 +			brcmf_ext: wifi@1 {
 +				reg = <1>;
 +				compatible = "brcm,bcm4329-fmac";
-+				brcm,drive-strength = <4>;
++				//brcm,drive-strength = <8>;
 +				interrupt-parent = <&gpio3>;
 +				interrupt-names = "host_wake";
 +				interrupts = <RK_PA1 IRQ_TYPE_LEVEL_LOW>;
@@ -115,7 +127,7 @@ index 000000000..a21b54257
 +				/*
 +				interrupt-names = "host-wakeup";
 +				interrupt-parent = <&gpio1>;
-+				interrupts = <RK_PC7 IRQ_TYPE_LEVEL_LOW>;
++				interrupts = <RK_PD2 IRQ_TYPE_NONE>;
 +				*/
 +				brcm,bt-pcm-int-params = [01 02 00 01 01];
 +			};
@@ -132,7 +144,7 @@ index 000000000..a21b54257
 +
 +
 +				bt_reg_on_h: bt-enable {
-+					rockchip,pins = <1 RK_PC5 0 &pcfg_pull_none>;
++					rockchip,pins = <1 RK_PC5 0 &pcfg_pull_down>;
 +				};
 +
 +				bt_device_wake_l: bt-device-wake {

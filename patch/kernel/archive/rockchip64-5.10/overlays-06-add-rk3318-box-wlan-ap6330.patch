@@ -38,7 +38,7 @@ index b414e3069..7b5073498 100644
 +wifi + bt chip and clones.
 diff --git a/arch/arm64/boot/dts/rockchip/overlay/rockchip-rk3318-box-wlan-ap6330.dts b/arch/arm64/boot/dts/rockchip/overlay/rockchip-rk3318-box-wlan-ap6330.dts
 new file mode 100644
-index 000000000..481e5d8e9
+index 000000000..f7754b78c
 --- /dev/null
 +++ b/arch/arm64/boot/dts/rockchip/overlay/rockchip-rk3318-box-wlan-ap6330.dts
 @@ -0,0 +1,106 @@
@@ -61,7 +61,7 @@ index 000000000..481e5d8e9
 +			brcmf_sdio: wifi@1 {
 +				reg = <1>;
 +				compatible = "brcm,bcm4329-fmac";
-+				brcm,drive-strength = <4>;
++				//brcm,drive-strength = <2>;
 +				interrupt-parent = <&gpio1>;
 +				interrupt-names = "host_wake";
 +				interrupts = <RK_PC3 IRQ_TYPE_LEVEL_LOW>;
@@ -82,7 +82,7 @@ index 000000000..481e5d8e9
 +			brcmf_ext: wifi@1 {
 +				reg = <1>;
 +				compatible = "brcm,bcm4329-fmac";
-+				brcm,drive-strength = <4>;
++				//brcm,drive-strength = <2>;
 +				interrupt-parent = <&gpio3>;
 +				interrupt-names = "host_wake";
 +				interrupts = <RK_PA1 IRQ_TYPE_LEVEL_LOW>;
