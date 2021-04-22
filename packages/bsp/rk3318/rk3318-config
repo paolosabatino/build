@@ -66,7 +66,7 @@ DT_EMMC_OVERLAYS+=(["rk3318-box-emmc-hs200"]="enable eMMC HS200 Mode")
 
 DT_LED_OVERLAYS+=(["rk3318-box-led-conf1"]="LED configuration #1 (YX_RK3328)")
 
-DT_CPU_OVERLAYS+=(["rk3318-box-cpu-hs"]="RK3228B or RK3229")
+DT_CPU_OVERLAYS+=(["rk3318-box-cpu-hs"]="RK3318 or Rk3328")
 
 #DT_WIFI_OVERLAYS+=(["6666:1111"]="rk3318-box-wlan-esp8089")
 DT_WIFI_OVERLAYS+=(["02d0:4334"]="rk3318-box-wlan-ap6334")
@@ -286,8 +286,8 @@ function select_soc() {
     fi
 
     [[ "$SELECTION" -eq 0 ]] && SELECTION=""
-    [[ "$SELECTION" -eq 1 ]] && SELECTION="cpu-hs"
-    [[ "$SELECTION" -eq 2 ]] && SELECTION="cpu-hs"
+    [[ "$SELECTION" -eq 1 ]] && SELECTION="rk3318-box-cpu-hs"
+    [[ "$SELECTION" -eq 2 ]] && SELECTION="rk3318-box-cpu-hs"
     
     echo $SELECTION
     
