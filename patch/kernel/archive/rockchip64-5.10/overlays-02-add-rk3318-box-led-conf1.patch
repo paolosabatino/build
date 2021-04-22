@@ -45,7 +45,7 @@ index 000000000..1f5e5b7f8
 +		__overlay__ {
 +
 +			working {
-+				gpios = <&gpio2 RK_PC7 GPIO_ACTIVE_LOW>;
++				gpios = <&gpio2 RK_PC7 GPIO_ACTIVE_HIGH>;
 +				linux,default-trigger = "mmc2";
 +			};
 +
