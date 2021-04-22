@@ -449,6 +449,19 @@ family_tweaks_bsp()
 
 	fi
 
+	if [[ $BOARD == rk3318-box ]]; then
+		
+		# Board selection script
+	        install -m 755 $SRC/packages/bsp/rk3318/rk3318-config $destination/usr/local/bin
+
+		# Fix for bad device detection for x.org when lima driver is in use
+	        if [[ "$BRANCH" != "legacy" ]]; then
+        	        mkdir -p $destination/etc/X11/xorg.conf.d
+                	cp $SRC/packages/bsp/rk322x/40-serverflags.conf $destination/etc/X11/xorg.conf.d
+	        fi
+	
+	fi
+
 	# Graphics and media
 	mkdir -p $destination/etc/udev/rules.d
 	cp $SRC/packages/bsp/rk3399/50-mali.rules $destination/etc/udev/rules.d/
