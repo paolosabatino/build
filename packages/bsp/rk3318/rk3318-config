@@ -66,7 +66,7 @@ DT_EMMC_OVERLAYS+=(["rk3318-box-emmc-hs200"]="enable eMMC HS200 Mode")
 
 DT_LED_OVERLAYS+=(["rk3318-box-led-conf1"]="LED configuration #1 (YX_RK3328)")
 
-DT_CPU_OVERLAYS+=(["rk3318-box-cpu-hs"]="RK3318 or Rk3328")
+DT_CPU_OVERLAYS+=(["rk3318-box-cpu-hs"]="RK3318 or RK3328")
 
 #DT_WIFI_OVERLAYS+=(["6666:1111"]="rk3318-box-wlan-esp8089")
 DT_WIFI_OVERLAYS+=(["02d0:4334"]="rk3318-box-wlan-ap6334")
@@ -131,6 +131,18 @@ function get_logic_leakage() {
 
 }
 
+# Get the CPU Version, byte 26 of the efuse
+function get_cpu_version() {
+
+	CPU_VERSION=$(od -A none -j 26 -N 1 -t dI $EFUSE_PATH | tr -d " ")
+	CPU_VERSION=$((($CPU_VERSION >> 3) & 7)) # offset: 3 bits, size: 3 bits
+
+	echo $CPU_VERSION
+
+	return 0
+
+}
+
 function get_sdio_device_path() {
 
 	[[ -d "$SDIO_WIFI_PATH" ]] && echo $SDIO_WIFI_PATH
@@ -143,10 +155,12 @@ function get_sdio_device_path() {
 # Get the vendor and device ids of the wifi chip
 function get_wifi_chip_id() {
 
-	if [ -d "$SDIO_WIFI_PATH" ]; then
+	SDIO_PATH="$1"
+
+	if [ -d "$SDIO_PATH" ]; then
 		
-		VENDOR=$(cut -c 3- "$SDIO_WIFI_PATH/vendor")
-		DEVICE=$(cut -c 3- "$SDIO_WIFI_PATH/device")
+		VENDOR=$(cut -c 3- "$SDIO_PATH/vendor")
+		DEVICE=$(cut -c 3- "$SDIO_PATH/device")
 
 		echo "$VENDOR:$DEVICE"
 
@@ -382,6 +396,7 @@ CHIP_TYPE=$(get_chip_type)
 CHIP_SERIAL=$(get_chip_serial)
 CPU_LEAKAGE=$(get_cpu_leakage)
 LOGIC_LEAKAGE=$(get_logic_leakage)
+CPU_VERSION=$(get_cpu_version)
 FLASH_TYPE=$(get_internal_flash_type)
 
 WIFI_PATH=$(get_sdio_device_path)
@@ -407,7 +422,7 @@ fi
 BOARD_INFO="\nDetected board features:\n\
 Chip type: ${COLOR_RED}\Zb${CHIP_TYPE}\Zn${COLOR_BLACK} - \
 Serial: $CHIP_SERIAL\n\
-CPU Leakage: 0x$CPU_LEAKAGE - Logic Leakage: 0x$LOGIC_LEAKAGE\n\
+CPU Leakage: 0x$CPU_LEAKAGE - Logic Leakage: 0x$LOGIC_LEAKAGE - CPU Version: 0x$CPU_VERSION\n\
 Internal flash: ${COLOR_RED}\Zb${FLASH_NAME}\Zn${COLOR_BLACK}\n\
 Wifi device: $WIFI_NAME\n\n"
 
