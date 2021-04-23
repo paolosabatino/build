@@ -65,6 +65,7 @@ DT_EMMC_OVERLAYS+=(["rk3318-box-emmc-ddr"]="enable eMMC DDR Mode")
 DT_EMMC_OVERLAYS+=(["rk3318-box-emmc-hs200"]="enable eMMC HS200 Mode")
 
 DT_LED_OVERLAYS+=(["rk3318-box-led-conf1"]="LED configuration #1 (YX_RK3328)")
+DT_LED_OVERLAYS+=(["rk3318-box-led-conf2"]="LED configuration #2 (X88_PRO_B)")
 
 DT_CPU_OVERLAYS+=(["rk3318-box-cpu-hs"]="RK3318 or RK3328")
 
