@@ -66,7 +66,7 @@ index 000000000..e1bd5abf7
 +		target = <&sdmmc_ext>;
 +		__overlay__ {
 +
-+			status = "enabled";
++			status = "okay";
 +
 +		};
 +
