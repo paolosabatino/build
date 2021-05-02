@@ -101,7 +101,7 @@ index 000000000..f7754b78c
 +			pinctrl-0 = <&uart0_xfer &uart0_rts &uart0_cts>;
 +
 +			bluetooth {
-+				compatible = "brcm,bcm4334b0-bt", "brcm,bcm4330-bt";
++				compatible = "brcm,bcm4330-bt";
 +				max-speed = <4000000>;
 +				shutdown-gpios = <&gpio1 RK_PC5 GPIO_ACTIVE_HIGH>;
 +				device-wakeup-gpios = <&gpio1 RK_PC7 GPIO_ACTIVE_HIGH>;
@@ -113,7 +113,7 @@ index 000000000..f7754b78c
 +				/*
 +				interrupt-names = "host-wakeup";
 +				interrupt-parent = <&gpio1>;
-+				interrupts = <RK_PC7 IRQ_TYPE_LEVEL_LOW>;
++				interrupts = <RK_PD2 IRQ_TYPE_LEVEL_LOW>;
 +				*/
 +				brcm,bt-pcm-int-params = [01 02 00 01 01];
 +			};
