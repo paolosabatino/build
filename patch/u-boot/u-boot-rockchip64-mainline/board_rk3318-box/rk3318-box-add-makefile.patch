@@ -176,12 +176,12 @@ index 00000000..779bc646
 + * (C) Copyright 2016 Rockchip Electronics Co., Ltd
 + */
 +
-diff --git a/include/configs/rk3318_box.h b/include/configs/rk3318_box.h
+diff --git a/include/configs/rk3318-box.h b/include/configs/rk3318-box.h
 new file mode 100644
-index 00000000..3a9a6702
+index 00000000..6587d30b
 --- /dev/null
-+++ b/include/configs/rk3318_box.h
-@@ -0,0 +1,37 @@
++++ b/include/configs/rk3318-box.h
+@@ -0,0 +1,33 @@
 +/* SPDX-License-Identifier: GPL-2.0+ */
 +/*
 + * (C) Copyright 2016 Rockchip Electronics Co., Ltd
@@ -205,46 +205,13 @@ index 00000000..3a9a6702
 +
 +#define CONFIG_EXTRA_ENV_SETTINGS \
 +        ENV_MEM_LAYOUT_SETTINGS \
-+	"stdin=serial,usbkbd\0" \
-+	"stdout=serial,vidconsole\0" \
-+	"stderr=serial,vidconsole\0" \
++        "stdin=serial,usbkbd\0" \
++        "stdout=serial,vidconsole\0" \
++        "stderr=serial,vidconsole\0" \
++        "fdt_high=0xffffffffffffffff\0" \
++        "initrd_high=0xffffffffffffffff\0" \
 +        "fdtfile=" CONFIG_DEFAULT_FDT_FILE "\0" \
 +        "partitions=" PARTS_DEFAULT \
 +        BOOTENV
 +
-+// #define CONFIG_SYS_MMC_ENV_DEV 1
-+
-+#define SDRAM_BANK_SIZE			(2UL << 30)
-+
-+// #define CONFIG_CONSOLE_SCROLL_LINES		10
-+
 +#endif
-diff --git a/include/configs/rk3318-box.h b/include/configs/rk3318-box.h
-new file mode 100644
-index 00000000..32cb4573
---- /dev/null
-+++ b/include/configs/rk3318-box.h
-@@ -0,0 +1,23 @@
-+/* SPDX-License-Identifier: GPL-2.0+ */
-+/*
-+ * (C) Copyright 2016 Rockchip Electronics Co., Ltd
-+ */
-+
-+#ifndef __RK3318_BOX_H
-+#define __RK3318_BOX_H
-+
-+#include <configs/rk3328_common.h>
-+
-+#undef CONFIG_EXTRA_ENV_SETTINGS
-+
-+#define CONFIG_EXTRA_ENV_SETTINGS \
-+        ENV_MEM_LAYOUT_SETTINGS \
-+	"fdt_high=0xffffffffffffffff\0" \
-+	"initrd_high=0xffffffffffffffff\0" \
-+        "fdtfile=" CONFIG_DEFAULT_FDT_FILE "\0" \
-+        "partitions=" PARTS_DEFAULT \
-+        BOOTENV
-+
-+
-+#endif
-+
