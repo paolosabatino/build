@@ -1,9 +1,9 @@
 diff --git a/arch/arm/boot/dts/overlay/Makefile b/arch/arm/boot/dts/overlay/Makefile
 new file mode 100755
-index 00000000..c7fc246e
+index 00000000..5e2b8cb4
 --- /dev/null
 +++ b/arch/arm/boot/dts/overlay/Makefile
-@@ -0,0 +1,36 @@
+@@ -0,0 +1,37 @@
 +# SPDX-License-Identifier: GPL-2.0
 +dtbo-$(CONFIG_ARCH_ROCKCHIP) += \
 +	rk322x-emmc.dtbo	\
@@ -17,6 +17,7 @@ index 00000000..c7fc246e
 +	rk322x-led-conf2.dtbo	\
 +	rk322x-led-conf3.dtbo   \
 +	rk322x-led-conf4.dtbo   \
++	rk322x-led-conf5.dtbo   \
 +	rk322x-cpu-hs.dtbo	\
 +	rk322x-cpu-stability.dtbo \
 +	rk322x-bluetooth.dtbo	\
@@ -42,10 +43,10 @@ index 00000000..c7fc246e
 +
 diff --git a/arch/arm/boot/dts/overlay/README.rk322x-overlays b/arch/arm/boot/dts/overlay/README.rk322x-overlays
 new file mode 100755
-index 00000000..0b6b09f1
+index 00000000..cb893eb4
 --- /dev/null
 +++ b/arch/arm/boot/dts/overlay/README.rk322x-overlays
-@@ -0,0 +1,91 @@
+@@ -0,0 +1,92 @@
 +This document describes overlays provided in the kernel packages
 +For generic Armbian overlays documentation please see
 +https://docs.armbian.com/User-Guide_Allwinner_overlays/
@@ -106,6 +107,7 @@ index 00000000..0b6b09f1
 +led-conf2 is found in other boards with R329Q and MXQ_RK3229 marking
 +led-conf3 is found in boards with R28-MXQ marking
 +led-conf4 is found on boards with T066 marking
++led-conf5 is found on boards with IPB900 marking from AEMS PVT
 +
 +### rk322x-bluetooth
 +
@@ -980,16 +982,23 @@ index 00000000..e9cda296
 +};
 diff --git a/arch/arm/boot/dts/overlay/rk322x-led-conf5.dts b/arch/arm/boot/dts/overlay/rk322x-led-conf5.dts
 new file mode 100644
-index 00000000..e9cda296
+index 00000000..1450ee3c
 --- /dev/null
 +++ b/arch/arm/boot/dts/overlay/rk322x-led-conf5.dts
-@@ -0,0 +1,81 @@
+@@ -0,0 +1,97 @@
 +/dts-v1/;
 +/plugin/;
 +
 +#include <dt-bindings/gpio/gpio.h>
-+#include <dt-bindings/input/rk-input.h>
++#include <dt-bindings/input/input.h>
 +#include <dt-bindings/pinctrl/rockchip.h>
++
++/*
++ * gpio configuration for AEMS IPB900 boards
++ *
++ * - enables working and auxiliary leds
++ * - fixes low strength on sdio pins for wifi
++ */
 +
 +/ {
 +
@@ -998,12 +1007,12 @@ index 00000000..e9cda296
 +		__overlay__ {
 +
 +			working {
-+				gpios = <&gpio1 RK_PA2 GPIO_ACTIVE_HIGH>;
++				gpios = <&gpio1 RK_PA7 GPIO_ACTIVE_LOW>;
 +				linux,default-trigger = "none";
 +			};
 +
 +			auxiliary {
-+				gpios = <&gpio0 RK_PA7 GPIO_ACTIVE_HIGH>;
++				gpios = <&gpio3 RK_PC5 GPIO_ACTIVE_LOW>;
 +				label = "auxiliary";
 +				linux,default-trigger = "mmc2";
 +				default-state = "off";
@@ -1018,12 +1027,12 @@ index 00000000..e9cda296
 +		target-path = "/pinctrl/gpio";
 +		__overlay__ {
 +
-+			gpio_led_working: gpio-led-working {
-+				rockchip,pins = <1 RK_PA2 RK_FUNC_GPIO &pcfg_pull_none>;
-+			};
-+
 +			gpio_led_aux: gpio-led-aux {
 +				rockchip,pins =  <1 RK_PA7 RK_FUNC_GPIO &pcfg_pull_none>;
++			};
++
++			reset_key: reset-key {
++				rockchip,pins = <3 RK_PD1 RK_FUNC_GPIO &pcfg_pull_up>;
 +			};
 +
 +		};
@@ -1032,6 +1041,9 @@ index 00000000..e9cda296
 +	fragment@2 {
 +		target = <&gpio_keys>;
 +		__overlay__ {
++
++			pinctrl-names = "default";
++			pinctrl-0 = <&reset_key>;
 +
 +			reset {
 +				gpios = <&gpio3 RK_PD1 GPIO_ACTIVE_LOW>;
@@ -1045,24 +1057,30 @@ index 00000000..e9cda296
 +	};
 +
 +	fragment@3 {
-+		target = <&sdio_pwrseq>;
++		target = <&sdio_bus4>;
 +		__overlay__ {
-+
-+			reset-gpios = <&gpio2 RK_PD3 GPIO_ACTIVE_LOW>; /* GPIO2_D3 */
-+
++			rockchip,pins = <3 2 1 &pcfg_pull_up>,
++					<3 3 1 &pcfg_pull_up>,
++					<3 4 1 &pcfg_pull_up>,
++					<3 5 1 &pcfg_pull_up>;
 +		};
 +
 +	};
 +
 +	fragment@4 {
-+		target = <&wifi_enable_h>;
++		target = <&sdio_clk>;
 +		__overlay__ {
-+
-+			rockchip,pins = <2 RK_PD3 RK_FUNC_GPIO &pcfg_pull_none>;
-+
++			rockchip,pins = <3 0 1 &pcfg_pull_down>;
 +		};
-+
 +	};
++
++	fragment@5 {
++		target = <&sdio_cmd>;
++		__overlay__ {
++			rockchip,pins = <3 1 1 &pcfg_pull_up>;
++		};
++	};
++
 +
 +};
 diff --git a/arch/arm/boot/dts/overlay/rk322x-nand.dts b/arch/arm/boot/dts/overlay/rk322x-nand.dts

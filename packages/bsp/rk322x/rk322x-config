@@ -91,8 +91,9 @@ DT_LED_OVERLAYS+=(["led-conf1"]="Chiptrip brand (MX1VR, MX4VR)")
 DT_LED_OVERLAYS+=(["led-conf2"]="R329q, MXQ-RK3229")
 DT_LED_OVERLAYS+=(["led-conf3"]="R28-MXQ")
 DT_LED_OVERLAYS+=(["led-conf4"]="T066/T066-V2")
+DT_LED_OVERLAYS+=(["led-conf5"]="AEMS IPB900")
 
-DT_LED_OVERLAYS_ORDER=("led-conf-default" "led-conf1" "led-conf2" "led-conf3" "led-conf4")
+DT_LED_OVERLAYS_ORDER=("led-conf-default" "led-conf1" "led-conf2" "led-conf3" "led-conf4" "led-conf5")
 
 DT_CPU_OVERLAYS+=(["cpu-hs"]="RK3228B or RK3229")
 
