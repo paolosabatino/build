@@ -512,10 +512,8 @@ if [[ "$SELECTION" = "emmc" ]]; then
     DT_OVERLAYS_TO_APPLY+=($SELECTION)
 fi
 
-if [[ "$LEGACY_KERNEL" = 1 ]]; then
-    SELECTION=$(select_ddr) || exit 1
-    DT_OVERLAYS_TO_APPLY+=($SELECTION)
-fi
+SELECTION=$(select_ddr) || exit 1
+DT_OVERLAYS_TO_APPLY+=($SELECTION)
 
 SELECTION=$(select_led_configuration) || exit 1
 DT_OVERLAYS_TO_APPLY+=($SELECTION)
